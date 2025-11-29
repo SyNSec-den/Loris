@@ -287,7 +287,7 @@ class FirmWireEmu(ABC):
                 else:
                     self.add_panda_hook(addr, hook["handler"], **hook["kwargs"])
 
-    def add_panda_hook(self, address, hook, cb_type="start_block_exec", **kwargs):
+    def add_panda_hook(self, address, hook, cb_type="before_block_exec", **kwargs):
         """Create a PANDA hook with FirmWireMachine context"""
         assert isinstance(address, int)
         assert callable(hook)
@@ -315,7 +315,7 @@ class FirmWireEmu(ABC):
 
             self.add_panda_mem_hook(hook["start"], hook["end"], hook["handler"], w=hook["write"], **hook["kwargs"])
 
-    def add_panda_mem_hook(self, start, end, hook, w=False, on_before=True, on_after=False, **kwargs):
+    def add_panda_mem_hook(self, start, end, hook, w=False, on_before=False, on_after=True, **kwargs):
         """Create a PANDA mem hook with FirmWireMachine context"""
         assert isinstance(start, int)
         assert isinstance(end, int)

@@ -65,6 +65,24 @@ class ARM_CORTEX_A53(ARM):
         pass
 
 
+class ARM_CORTEX_A78(ARM):
+    cpu_model = "cortex-a78"
+    qemu_name = "arm"
+    gdb_name = "arm"
+    angr_name = "arm"
+
+    capstone_arch = CS_ARCH_ARM
+    capstone_mode = CS_MODE_LITTLE_ENDIAN | CS_MODE_THUMB
+    keystone_arch = KS_ARCH_ARM
+    keystone_mode = KS_MODE_LITTLE_ENDIAN | KS_MODE_THUMB
+    unicorn_arch = UC_ARCH_ARM
+    unicorn_mode = UC_MODE_LITTLE_ENDIAN | UC_MODE_THUMB
+
+    @staticmethod
+    def init(avatar):
+        pass
+
+
 class ShannonLoader(firmwire.loader.Loader):
     NAME = "shannon"
     LOADER_ARGS = {
@@ -82,8 +100,8 @@ class ShannonLoader(firmwire.loader.Loader):
 
     @property
     def ARCH(self):
-        if self.modem_soc.name == "S5123AP":
-            return ARM_CORTEX_R7
+        if self.modem_soc.name in ("S5123AP", "S5123"):
+            return ARM_CORTEX_A78
         else:
             return ARM_CORTEX_R7
 
@@ -111,7 +129,7 @@ class ShannonLoader(firmwire.loader.Loader):
         # Set during patterndb finding
         self._task_layout = None
 
-        if self.modem_soc.name == "S5123" or self.modem_soc.name == "S5123AP":
+        if self.modem_soc.name in ("S5123AP", "S5123"):
             patterns = S5123_PATTERNS
         elif self.modem_soc.name == "S5133AP":
             patterns = S5133AP_PATTERNS
@@ -145,62 +163,57 @@ class ShannonLoader(firmwire.loader.Loader):
 
     def build_memory_map(self):
         if self.modem_soc.name == "S5123AP":
-            from firmwire.vendor.shannon.mpu import MPUEntry
-            mpu_entries = [
-                MPUEntry(0, 0x00000000, 0x00100000, 0x0329),
-                MPUEntry(1, 0x40000000, 0x08000000, 0x0329),
-                # MPUEntry(2, 0x44000000, 0x04000000, 0x1308),
-                MPUEntry(3, 0x48000000, 0x01200000, 0x1308),
-                MPUEntry(27, 0x49200000, 0x00900000, 0x0329),
-                MPUEntry(4, 0x49a00000, 0x00200000, 0x1308),
-                MPUEntry(5, 0x49c00000, 0x00100000, 0x1308),
-                MPUEntry(6, 0x49d00000, 0x00a00000, 0x1308),
-                MPUEntry(7, 0x4a700000, 0x00400000, 0x1308),
-                MPUEntry(8, 0x4ab00000, 0x01a00000, 0x1308),
-                MPUEntry(9, 0x4c500000, 0x01300000, 0x1308),
-                MPUEntry(10, 0x50000000, 0x07e00000, 0x1308),
-                MPUEntry(11, 0x80000000, 0x01000000, 0x1308),
-                MPUEntry(12, 0x81000000, 0x01000000, 0x1308),
-                MPUEntry(13, 0x82000000, 0x01000000, 0x1308),
-                MPUEntry(14, 0x83000000, 0x01000000, 0x1308),
-                MPUEntry(15, 0x84000000, 0x01000000, 0x1308),
-                MPUEntry(16, 0x85000000, 0x01000000, 0x1308),
-                MPUEntry(17, 0x87000000, 0x00100000, 0x1308),
-                MPUEntry(18, 0x87200000, 0x00100000, 0x1308),
-                MPUEntry(19, 0x88000000, 0x00100000, 0x1308),
-                MPUEntry(20, 0x88100000, 0x00200000, 0x1308),
-                MPUEntry(21, 0x8a000000, 0x01000000, 0x1308),
-                MPUEntry(22, 0x8f000000, 0x01000000, 0x1308),
-                MPUEntry(23, 0x90000000, 0x0f000000, 0x1308),
-                MPUEntry(27, 0xb0000000, 0x10000000, 0x1308),
-                MPUEntry(24, 0xc0000000, 0x20000000, 0x1308),
-                MPUEntry(25, 0xe0000000, 0x08000000, 0x1308),
-                MPUEntry(26, 0xe8000000, 0x08000000, 0x1308),
+            from firmwire.vendor.shannon.mmu import MMUEntry
+            mem_entries = [
+                MMUEntry(0, 0x00000000, 0x00100000, 0x1940c),
+                MMUEntry(1, 0x40000000, 0x01e00000, 0x1940c),
+                MMUEntry(2, 0x41e00000, 0x06200000, 0x11c1d),
+                MMUEntry(3, 0x48000000, 0x01a00000, 0x11c11),
+                MMUEntry(4, 0x49a00000, 0x00200000, 0x11c1d),
+                MMUEntry(5, 0x49c00000, 0x00100000, 0x11c11),
+                MMUEntry(6, 0x49d00000, 0x00a00000, 0x19411),
+                MMUEntry(7, 0x4a700000, 0x00400000, 0x11c11),
+                MMUEntry(8, 0x4ab00000, 0x01a00000, 0x11c1d),
+                MMUEntry(9, 0x4c500000, 0x01300000, 0x11c11),
+                MMUEntry(10, 0x50000000, 0x07e00000, 0x11c11),
+                MMUEntry(11, 0x80000000, 0x01000000, 0xc11),
+                MMUEntry(12, 0x81000000, 0x01000000, 0xc11),
+                MMUEntry(13, 0x82000000, 0x01000000, 0xc11),
+                MMUEntry(14, 0x83000000, 0x01000000, 0xc11),
+                MMUEntry(15, 0x84000000, 0x01000000, 0xc11),
+                MMUEntry(16, 0x85000000, 0x01000000, 0xc11),
+                MMUEntry(17, 0x87000000, 0x00100000, 0xc11),
+                MMUEntry(18, 0x87200000, 0x00100000, 0xc11),
+                MMUEntry(19, 0x88000000, 0x00100000, 0xc11),
+                MMUEntry(20, 0x88100000, 0x00200000, 0xc11),
+                MMUEntry(21, 0x8a000000, 0x01000000, 0xc11),
+                MMUEntry(22, 0x8f000000, 0x01000000, 0xc11),
+                MMUEntry(23, 0x90000000, 0x0f000000, 0xc11),
+                MMUEntry(24, 0xc0000000, 0x20000000, 0xc11),
+                MMUEntry(25, 0xe0000000, 0x08000000, 0x8411),
+                MMUEntry(26, 0xe8000000, 0x08000000, 0xc11),
+                MMUEntry(1313, 0x61e00000, 0x00100000, 0x11c0c),
             ]
             self.unsafe_regions += [(0, 0x00100000), (0x40000000, 0x48000000)]
         elif self.modem_soc.name == "S5123":
-            from firmwire.vendor.shannon.mpu import MPUEntry
-            mpu_entries = [
-                MPUEntry(0, 0x00000000, 0x00100000, 0x0329),
-                MPUEntry(1, 0x10000000, 0x10000000, 0x1308),
-                MPUEntry(2, 0x20000000, 0x10000000, 0x1308),
-                MPUEntry(3, 0x40000000, 0x0b500000, 0x0329),
-                MPUEntry(3, 0x4b500000, 0x00300000, 0x0329),
-                MPUEntry(4, 0x4b800000, 0x04800000, 0x1308),
-                MPUEntry(5, 0x50000000, 0x10000000, 0x1308),
-                MPUEntry(6, 0x81000000, 0x01000000, 0x1308),
-                MPUEntry(7, 0x82000000, 0x01000000, 0x1308),
-                MPUEntry(8, 0x83000000, 0x01000000, 0x1308),
-                MPUEntry(9, 0x84000000, 0x01000000, 0x1308),
-                MPUEntry(10, 0x90000000, 0x0f000000, 0x1308),
-                MPUEntry(11, 0xb0000000, 0x10000000, 0x1308),
-                MPUEntry(12, 0xc0000000, 0x20000000, 0x1308),
-                MPUEntry(13, 0xe0000000, 0x10000000, 0x1308),
-            ]
-            self.unsafe_regions += [(0, 0x00100000), (0x40000000, 0x4b500000)]
+            from firmwire.vendor.shannon.mmu import MMUEntry
+            modem_main = self.modem_file.get_section("MAIN")
+            sym = self.symbol_table.lookup("main_mmu_table")
+            if sym is None:
+                log.error(
+                    "Unable to find MPU table in modem binary. Cannot create memory map"
+                )
+                return False
+
+            mem_entries, unsafe_regions = shannon.mmu.parse_mmu_table(modem_main, sym.address)
+            # To inject task
+            mem_entries.append(
+                MMUEntry(1313, 0x70000000, 0x00100000, 0x11c0c),
+            )
+            self.unsafe_regions.extend(unsafe_regions)
         elif self.modem_soc.name == "S5133AP":
             from firmwire.vendor.shannon.mpu import MPUEntry
-            mpu_entries = [
+            mem_entries = [
                 MPUEntry(0, 0x00000000, 0x00100000, 0x0329),
                 MPUEntry(1, 0x40000000, 0x10000000, 0x0329),
                 # MPUEntry(2, 0x48000000, 0x08000000, 0x1308),
@@ -229,10 +242,10 @@ class ShannonLoader(firmwire.loader.Loader):
                 )
                 return False
 
-            mpu_entries = shannon.mpu.parse_mpu_table(modem_main, sym.address)
-        for ent in mpu_entries:
+            mem_entries = shannon.mpu.parse_mpu_table(modem_main, sym.address)
+        for ent in mem_entries:
             print(ent)
-        table = shannon.mpu.consolidate_mpu_table(mpu_entries)
+        table = shannon.mpu.consolidate_mpu_table(mem_entries)
         self.mpu_table = table
 
         for entry in table:
@@ -298,51 +311,42 @@ class ShannonLoader(firmwire.loader.Loader):
         for peripheral in self.modem_soc.peripherals:
             self.create_soc_peripheral(peripheral)
 
-        if external_peripherals == 0:
-            self.create_timer(self.modem_soc.TIMER_BASE + 0x000, 0x100, "tim0", 34, 100000)
-            self.create_timer(self.modem_soc.TIMER_BASE + 0x100, 0x100, "tim1", 35, 6000000)
-            self.create_timer(self.modem_soc.TIMER_BASE + 0x200, 0x100, "tim2", 36, 6000000)
-            self.create_timer(self.modem_soc.TIMER_BASE + 0x300, 0x100, "tim3", 37, 6000000)
-            self.create_timer(self.modem_soc.TIMER_BASE + 0x400, 0x100, "tim4", 38, 6000000)
-            self.create_timer(self.modem_soc.TIMER_BASE + 0x500, 0x100, "tim5", 39, 6000000)
+        for i in range(self.modem_soc.NUM_TIMERS):
+            freq = 6000000
+            if i == 0:
+                freq = 100000
+            self.create_timer(
+                self.modem_soc.TIMER_BASE + i * 0x100, 0x100,
+                "tim{}".format(i), self.modem_soc.iTINT0 + i, freq,
+                gic_model=self.modem_soc.GIC_MODEL)
 
+        self.create_peripheral(
+            self.modem_soc.CLK_PERIPHERAL, self.modem_soc.SOC_CLK_BASE, 0xA000, name="SOC_CLK")
+        self.create_peripheral(
+            self.modem_soc.SOC_PERIPHERAL, self.modem_soc.SOC_BASE, 0x2000, name="SOC")
+        self.create_peripheral(UARTPeripheral, 0x84000000, 0x1000, name="boot_uart")
+        self.create_peripheral(
+            self.modem_soc.SHM_PERIPHERAL, self.modem_soc.SHM_BASE, 0x500000, name="SHM")
+        self.create_peripheral(
+            self.modem_soc.IPC_PERIPHERAL, self.modem_soc.SIPC_BASE, 0x1000, name="SIPC")
+
+        if self.modem_soc.name in ("S335AP", "S337AP", "S353AP", "S355AP", "S360AP", "S5000AP"):
             self.create_peripheral(ShannonTCU, 0x8200F000, 0x100, name="TCU")
 
-            self.create_peripheral(
-                self.modem_soc.CLK_PERIPHERAL,
-                self.modem_soc.SOC_CLK_BASE,
-                0xA000,
-                name="SOC_CLK",
-            )
-
-            # This has the CHIP_ID
-            self.create_peripheral(
-                ShannonSOCPeripheral, self.modem_soc.SOC_BASE, 0x2000, name="SOC"
-            )
-
-            self.create_peripheral(UARTPeripheral, 0x84000000, 0x1000, name="boot_uart")
-            self.create_peripheral(Unknown2Peripheral, 0x81002000, 0x1000, name="unk_per8")
-
-            # @ 40000958: 0x4b200c00
-            # This contains CHIP MODE and communication FIFO
-            # Matches with DTB from Kernel offset
-            # modem-s5000ap-sipc-pdata.dtsi (shmem,ipc_offset = <0xB200000>)
-            self.create_peripheral(
-                SHMPeripheral, self.modem_soc.SHM_BASE, 0x500000, name="SHM"
-            )
-
-            # @ 40000834: 8f920008
-            self.create_peripheral(
-                SIPCPeripheral, self.modem_soc.SIPC_BASE, 0x1000, name="SIPC"
-            )
-
-            # 0x8f900080 @ 0x4103e6f6: ldr     r3, p[r0]
             self.create_peripheral(LoggingPeripheral, 0x8F900000, 0x1000, name="unk_per10")
-
             self.create_peripheral(LoggingPeripheral, 0x8FC30000, 0x1000, name="usi1")
             self.create_peripheral(LoggingPeripheral, 0x8FC22000, 0x1000, name="usi2")
             self.create_peripheral(LoggingPeripheral, 0x8FC60000, 0x1000, name="usi3")
             self.create_peripheral(LoggingPeripheral, 0x8FD20000, 0x1000, name="usi4")
+
+            self.create_peripheral(MarconiPeripheral, 0xC1800000, 0x5000, name="marconi")
+            self.create_peripheral(CyclicBitPeripheral, 0xC2000000, 0x1000, name="marconi2")
+        elif self.modem_soc.name in ("S5123", ):
+            self.create_mc_timer(0x840f0000, 0x1000)
+            self.create_peripheral(UARTPeripheral, 0x84010000, 0x1000, name="uart2")
+            self.create_peripheral(Unknown2Peripheral, 0x81020000, 0x1000, name="unk_per8")
+            self.create_peripheral(CyclicBitPeripheral, 0x14500000, 0x5000, name="marconi")
+            self.create_peripheral(CyclicBitPeripheral, 0x14420000, 0x1000, name="marconi2")
 
         if self.modem_file.has_section("NV"):
             nv = self.modem_file.get_section("NV")
@@ -456,10 +460,6 @@ class ShannonLoader(firmwire.loader.Loader):
         self.add_memory_annotation(0x44200000, 0x1400000, "sysmem")
         self.add_memory_annotation(0x04000000, 0x1D000, "BIOS")
         self.add_memory_annotation(0xC1001000, 0x1000, "twog_something")
-        # self.add_memory_annotation(0xc1800000, 0x5000, "marconi")
-        # self.add_memory_annotation(0xc2000000, 0x1000, "marconi2")
-        self.create_peripheral(MarconiPeripheral, 0xC1800000, 0x5000, name="marconi")
-        self.create_peripheral(CyclicBitPeripheral, 0xC2000000, 0x1000, name="marconi2")
 
         # TODO: move GLINK peripheral creation to emulation time
         self.create_peripheral(GLinkPeripheral, 0xEC000000, 0x1000, name="glink")
@@ -475,12 +475,12 @@ class ShannonLoader(firmwire.loader.Loader):
 
         return True
 
-    def create_timer(self, start, size, name, irq_num, freq=1000000, gic_name=0):
+    def create_timer(self, start, size, name, irq_num, freq=1000000, gic_model=0):
         self.add_memory_range
         props = [
             {"type": "uint32", "name": "irq_num", "value": irq_num},
             {"type": "uint32", "name": "freq", "value": freq},
-            {"type": "uint32",  "name": "gic_name", "value": gic_name},
+            {"type": "uint32",  "name": "gic_model", "value": gic_model},
         ]
         mr = self.add_memory_range(
             start,
@@ -488,6 +488,17 @@ class ShannonLoader(firmwire.loader.Loader):
             name=name,
             qemu_name="shannon_timer",
             qemu_properties=props,
+            permissions="rw-",
+        )
+        return mr
+
+    def create_mc_timer(self, start, size):
+        self.add_memory_range
+        mr = self.add_memory_range(
+            start,
+            size,
+            name="MC_TIMER",
+            qemu_name="exynos4210.mct",
             permissions="rw-",
         )
         return mr

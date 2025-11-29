@@ -52,7 +52,7 @@ COMMON_DEP := $(addprefix $(BUILD_DIR)/, $(COMMON_SRC:.c=.d))
 
 #######################################
 
-MODS := hello_world msg_inject_test lte_rrc emm loris_emm
+MODS := hello_world msg_inject_test lte_rrc
 
 hello_world_SRC := hello_world.c
 

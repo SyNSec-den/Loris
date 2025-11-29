@@ -1,5 +1,7 @@
 ## Copyright (c) 2022, Team FirmWire
 ## SPDX-License-Identifier: BSD-3-Clause
+from enum import IntEnum
+
 from firmwire.hw.peripheral import *
 
 from .uart import UARTPeripheral, MotoUARTPeripheral
@@ -17,6 +19,12 @@ from .shannon_timer import ShannonTimer, ShannonTCU, ShannonUptimer
 from .abox import ShannonAbox
 from .s3xxap import S3xxAPBoot
 from .sys_cmu import SysCmuPeripheral
-from .Unknown5Peripheral import Unknown5Peripheral, Unknown6Peripheral, Unknown7Peripheral
+from .Unknown5Peripheral import Unknown5Peripheral, Unknown6Peripheral, Unknown7Peripheral, \
+    Unknown8Peripheral, Unknown9Peripheral, Unknown10Peripheral, Unknown11Peripheral
 from .MsiPeripheral import MsiPeripheral
 from .cmu_ucpu import CmuUcpuPeripheral
+
+
+class GicModel(IntEnum):
+    A9_MPCORE = 0,
+    A15_MPCORE = 1,

@@ -8,6 +8,12 @@ from firmwire.util.BinaryPattern import BinaryPattern
 class ShannonSOC(FirmWireSOC):
     # Start in BOOT (can be overwritten)
     ENTRY_ADDRESS = 0x0
+    SHM_PERIPHERAL = SHMPeripheral
+    SOC_PERPHERAL = ShannonSOCPeripheral
+    IPC_PERIPHERAL = SIPCPeripheral
+    NUM_TIMERS = 6
+    GIC_MODEL = GicModel.A9_MPCORE
+    iTINT0 = 34
 
     # Whether the OSI for the TaskStruct should use the Moto or Samsung version
 
@@ -49,7 +55,7 @@ class S5133AP(ShannonSOC):
     TIMER_BASE = SOC_BASE + 0x50000 #
 
     name = "S5133AP"
-    
+
     def __init__(self, date, main_section):
         super().__init__(date)
 
@@ -70,28 +76,33 @@ class S5123AP(ShannonSOC):
     ]
 
     CHIP_ID = 0x50000000
-    SIPC_BASE = 0x8F940000  # changed
-    SHM_BASE = 0x50000000  # changed + not sure
-    SOC_BASE = 0x82020000  # changed
-    SOC_CLK_BASE = 0x8a000000  # changed + not sure
+    SIPC_BASE = 0x8F940000
+    SHM_BASE = 0x50000000
+    SOC_BASE = 0x82020000
+    SOC_CLK_BASE = 0x8a000000
     CLK_PERIPHERAL = S5123APClkPeripheral
-    TIMER_BASE = SOC_BASE + 0x50000  # changed
+    TIMER_BASE = SOC_BASE + 0x50000
+    NUM_TIMERS = 6
+    iTINT0 = 32
+    GIC_MODEL = GicModel.A15_MPCORE
 
     name = "S5123AP"
 
     def __init__(self, date, main_section):
         super().__init__(date)
 
-        dsp_load_addr = dsp_base_search(main_section)
+        # dsp_load_addr = dsp_base_search(main_section)
         self.peripherals += [
-            SOCPeripheral(
-                DSP2Peripheral,
-                0x4a75a000,
-                # dsp_load_addr,
-                0x1000,
-                name="DSPPeripheral",
-                sync=[0xc1, 0x1bc],
-            )
+            # SOCPeripheral(
+            #     DSP2Peripheral,
+            #     0x4a75a000,
+            #     # dsp_load_addr,
+            #     0x1000,
+            #     name="DSPPeripheral",
+            #     sync=[0xc1, 0x1bc],
+            # ),
+            # SOCPeripheral(Unknown4Peripheral, 0x95820000, 0x1000, name="unk_per4"),
+            # SOCPeripheral(SysCfgPeripheral, 0x82000000, 0x1000, name="SYSCFG"),
         ]
 
 
@@ -103,36 +114,33 @@ class S5123(ShannonSOC):
     ]
 
     CHIP_ID = 0x20000000
-    SIPC_BASE = 0x8F940000
-    SHM_BASE = 0x50000000 #
+    SIPC_BASE = 0x28000000
+    SHM_BASE = 0x50000000
+    SHM_PERIPHERAL = SHM2Peripheral
     SOC_BASE = 0x82020000
+    SOC_PERIPHERAL = ShannonSOC2Peripheral
     SOC_CLK_BASE = 0x14400000
     CLK_PERIPHERAL = S5123APClkPeripheral
-    TIMER_BASE = SOC_BASE + 0x50000
+    IPC_PERIPHERAL = GIPCPeripheral
+    TIMER_BASE = SOC_BASE + 0x50000  # Timer IRQ already taken.
+    NUM_TIMERS = 8
+    iTINT0 = 32
+    GIC_MODEL = GicModel.A15_MPCORE
 
     name = "S5123"
-    
+
     def __init__(self, date, main_section):
         super().__init__(date, main_section)
 
         self.peripherals += [
-            # Oriole
-            SOCPeripheral(
-                DSP2Peripheral,
-                0x4f45a000,
-                0x1000,
-                name="DSPPeripheral",
-                # sync=[0xc1, 0x1c7],  # oriole-sq3a.220705.004
-                sync=[0xc1, 0x1c8],  # oriole-ap2a.240905.003.f1
-            ),
-            # G981BXXSKHXEA
-            SOCPeripheral(
-                DSP2Peripheral,
-                0x4c15a000,
-                0x1000,
-                name="DSPPeripheral",
-                sync=[0xbd, 0x1b7],
-            )
+            SOCPeripheral(DSP2Peripheral, 0x4f45a000, 0x1000, name="DSPPeripheral", sync=[0xc1, 0x1c8]),
+            SOCPeripheral(self.CLK_PERIPHERAL, 0x10400000, 0x1000, name="SOC_CLK2"),
+            SOCPeripheral(self.CLK_PERIPHERAL, 0x12050000, 0x1000, name="SOC_CLK3"),
+            SOCPeripheral(SysCmuPeripheral,    0x83000000, 0x4000, name="SYS_CMU"),
+            SOCPeripheral(Unknown5Peripheral,  0x11861000, 0x1000, name="UNK5"),
+            SOCPeripheral(MsiPeripheral,       0x15000000, 0x1000, name="MSI"),
+            SOCPeripheral(Unknown7Peripheral,  0x10000000, 0x1000, name="UNK7"),
+            SOCPeripheral(Unknown11Peripheral, 0x83050000, 0x1000, name="UNK11"),
         ]
 
 

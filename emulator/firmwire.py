@@ -157,9 +157,9 @@ def get_args():
         help="Enable exclusive list of OS tasks",
     )
     parser.add_argument(
-        "--before-launch",
+        "--spec",
         type=str,
-        help="`before_launch` function to run before starting the machine"
+        help="Modem specific configurations"
     )
 
     fuzzopts = parser.add_argument_group("fuzzing options")
@@ -337,8 +337,8 @@ def main() -> int:
     workspace.create()
 
     external_peripherals = 0
-    if args.before_launch:
-        mod = SourceFileLoader("before_launch", os.path.abspath(args.before_launch)).load_module()
+    if args.spec:
+        mod = SourceFileLoader("spec", os.path.abspath(args.spec)).load_module()
         if hasattr(mod, "add_peripherals"):
             external_peripherals = 1
 
@@ -411,7 +411,7 @@ def main() -> int:
         machine.spawn_gdb_server(args.gdb_server)
 
     if loader.NAME == "shannon":
-        if args.before_launch and hasattr(mod, "symbols"):
+        if args.spec and hasattr(mod, "symbols"):
             for sym in mod.symbols:
                 machine.symbol_table.add(sym["name"], sym["address"])
         # With shannon we can inject tasks overwriting the old one, even after snapshot restores for quick dev
@@ -433,12 +433,11 @@ def main() -> int:
 
     log.info("Starting emulator %s", machine.instance_name)
 
-    if args.before_launch:
-        mod = SourceFileLoader("before_launch", os.path.abspath(args.before_launch)).load_module()
+    if args.spec:
+        mod = SourceFileLoader("spec", os.path.abspath(args.spec)).load_module()
         if hasattr(mod, "before_launch"):
             mod.before_launch(machine)
-        else:
-            log.warning(f"no `before_launch` function found in {args.before_launch}")
+
     machine.start(start_suspended=args.stop, console=args.console)
 
 

@@ -104,7 +104,7 @@ class ShannonSOC2Peripheral(LoggingPeripheral):
     def __init__(self, name, address, size, **kwargs):
         super().__init__(name, address, size, **kwargs)
 
-        self.warm_boot = [1, 2]
+        self.warm_boot = [1, 1]
 
         self.read_handler[0:size] = self.hw_read
         self.write_handler[0:size] = self.hw_write

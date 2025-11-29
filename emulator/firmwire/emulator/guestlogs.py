@@ -154,7 +154,7 @@ class FirmWireGuestLogger:
     def task_log_buffered(self, task_name):
         if self._tasks_log_buffer is None:
             return False
-        
+
         return task_name in self._tasks_log_buffer.keys()
 
     def task_log_enable_all(self):
@@ -173,7 +173,7 @@ class FirmWireGuestLogger:
     def task_log_buffer(self, *tasks):
         if self._tasks_log_buffer is None:
             self._tasks_log_buffer = {}
-        
+
         for task_name in tasks:
             self._tasks_log_buffer[task_name] = Queue()
 
@@ -186,7 +186,7 @@ class FirmWireGuestLogger:
 
     def task_log_get(self, task_name):
         return self._tasks_log_buffer[task_name].get()
-    
+
     def task_log_get_buffer(self, task_name) -> Queue:
         return self._tasks_log_buffer[task_name]
 

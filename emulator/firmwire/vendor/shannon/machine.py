@@ -290,12 +290,12 @@ r12: %08x     cpsr: %08x""" % (
         )
         log.info("pc: " + self.qemu.disassemble_pretty(addr=R.pc).strip())
 
-    def hook_debug(self, additional_hooks=None):
+    def hook_debug(self, spec=None):
         new_mappings = []
         new_mem_mappings = []
-        if additional_hooks is not None:
-            new_hooks = SourceFileLoader("mappings", os.path.abspath(additional_hooks)).load_module()
-            if hasattr(new_hooks, 'mappings'):
+        if spec is not None:
+            new_hooks = SourceFileLoader("mappings", os.path.abspath(spec)).load_module()
+            if hasattr(new_hooks, "mappings"):
                 new_mappings = new_hooks.mappings
             if hasattr(new_hooks, 'mem_mappings'):
                 new_mem_mappings = new_hooks.mem_mappings
@@ -524,7 +524,7 @@ r12: %08x     cpsr: %08x""" % (
 
         # Display debug information whenever not fuzzing and register plugins
         if self._debug or not self._fuzzing:
-            self.hook_debug(args.additional_hooks)
+            self.hook_debug(args.spec)
             avatar.load_plugin("disassembler")
 
         malloc = self.symbol_table.lookup("pal_MemAlloc")
@@ -632,7 +632,7 @@ r12: %08x     cpsr: %08x""" % (
 
         # make the task the lowest priority, so it gets scheduled once everything is initialized (during boot)
         # and conversely once any message it sends out is done processing
-        res = self.inject_task(module, prio=0xF0)
+        res = self.inject_task(module, prio=0xFF)
         if not res:
             log.error("Failed to inject task into OS")
             return False
@@ -927,6 +927,16 @@ r12: %08x     cpsr: %08x""" % (
             self.qemu.cont(blocking=False)
             return True
 
+        def set_affinity(self):
+            print("Changing affinity to 0")
+            self.qemu.wm(self.qemu.regs.r2, 4, 0)
+            self.qemu.regs.r2 = 0
+            self.qemu.wm(self.qemu.regs.r3, 4, 0)
+            self.qemu.regs.r3 = 0
+            self.qemu.wm(self.qemu.regs.sp, 4, [0, 0, 0], num_words=3)
+            self.qemu.cont(blocking=False)
+            return True
+
         def single_step(self):
             shannon_debug.panda_step_debug(self)
             self.qemu.cont(blocking=False)
@@ -947,23 +957,92 @@ r12: %08x     cpsr: %08x""" % (
             return False
 
         # fixup dsp sync word
-        dsp_periph = self.peripheral_map["DSPPeripheral"]
         sym_sync_0 = self.symbol_table.lookup("DSP_SYNC_WORD_0")
         sym_sync_1 = self.symbol_table.lookup("DSP_SYNC_WORD_1")
         if sym_sync_0 is not None and sym_sync_1 is not None:
+            dsp_periph = self.peripheral_map["DSPPeripheral"]
             dsp_periph.dsp_sync0 = self.symbol_table.lookup("DSP_SYNC_WORD_0").address
             dsp_periph.dsp_sync1 = self.symbol_table.lookup("DSP_SYNC_WORD_1").address
 
         disable_list = []
 
-        if self.modem_soc.name == "S5000AP" or self.modem_soc.name == "S5123AP" or self.modem_soc.name == "S5133AP":
+        if self.modem_soc.name in ("S5000AP", "S5123AP", "S5133AP"):
             if self.modem_soc.name == "S5123AP":
-                disable_list += ["BTL"]
+                # disable_list += ["BTL"]
+                self.set_breakpoint(
+                    self.symbol_table.lookup("set_task_affinity").address, set_affinity)
             self.set_breakpoint(
                 self.symbol_table.lookup("boot_key_check").address, set_key
             )
             if self.modem_soc.name != "S5133AP":
                 disable_list += ["SHM"]  # need to configure SBD
+
+        elif self.modem_soc.name == "S5123":
+            from firmwire.vendor.shannon.hooks import warm_boot_change, protect_write_access
+            new_mappings = [
+                {
+                    "name": "warm_boot_change",
+                    "address": 0x40010000,
+                    "handler": warm_boot_change,
+                },
+            ]
+            self.install_hooks(new_mappings)
+            rf_hwid = self.symbol_table.lookup("rf_hwid").address
+            board_rf_config = self.symbol_table.lookup("board_rf_config").address
+            trng_init = self.symbol_table.lookup("trng_init").address
+            new_mem_mappings = [
+                {
+                    "start": 0x40008000 | 0x70000000 >> 0x12,
+                    "end":   (0x40008000 | 0x70000000 >> 0x12) + 4,
+                    "handler": protect_write_access,
+                    "write": True,
+                    "kwargs": {
+                        "label": "RWX_Region",
+                        "const_value": 0x70000000 | 0x11c0e,
+                        "on_after": True,
+                    },
+                },
+                {
+                    # oriole-ap2a.240905.003.f1:no rf_hwid found in mapping table
+                    "start": rf_hwid,
+                    "end":   rf_hwid + 4,
+                    "handler": protect_write_access,
+                    "write": True,
+                    "kwargs": {
+                        "label": "rf_hwid",
+                        "const_value": 1,
+                        "on_after": True,
+                    },
+                },
+                {
+                    # oriole-ap2a.240905.003.f1: There is no board_rf_config
+                    "start": board_rf_config,
+                    "end":   board_rf_config + 4,
+                    "handler": protect_write_access,
+                    "write": True,
+                    "kwargs": {
+                        "label": "board_rf_config",
+                        "const_value": 0x12d,
+                        "on_after": True,
+                    },
+                },
+                {
+                    # oriole-ap2a.240905.003.f1: [SECURITY] TRNG INIT FAIL !
+                    "start": trng_init,
+                    "end":   trng_init + 1,
+                    "handler": protect_write_access,
+                    "write": True,
+                    "kwargs": {
+                        "label": "TRNG",
+                        "const_value": 1,
+                        "on_after": True,
+                    },
+                },
+            ]
+            self.install_mem_hooks(new_mem_mappings)
+            disable_list += ["PCIE"]
+            self.set_breakpoint(
+                self.symbol_table.lookup("set_task_affinity").address, set_affinity)
 
         # HACK for CP_G950FXXU1AQI7 and G960
         elif self.modem_soc.name in ["S355AP", "S360AP"]:

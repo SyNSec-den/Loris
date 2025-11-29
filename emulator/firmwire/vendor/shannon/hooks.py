@@ -114,12 +114,18 @@ def hw_MCU_Sleep(self, cpustate, tb, hook):
     log_emit(self, cpustate, "hw_MCU_Sleep")
 
 
-def OS_Schedule_Task(self, cpustate, tb, hook):
+def OS_Schedule_Task(self, cpustate, tb, hook, func_name=None, **kwargs):
     r0 = cpustate.env_ptr.regs[0]
+    r1 = cpustate.env_ptr.regs[1]
 
     name = self.get_sch_task_name_by_id(r0)
 
-    log_emit(self, cpustate, f"OS_Schedule_Task({name} ({r0:#x}))")
+    if func_name is None:
+        func_name = "OS_Schedule_Task"
+    else:
+        assert isinstance(func_name, str)
+
+    log_emit(self, cpustate, f"{func_name}({name} ({r0:#x}), {r1:#x})")
 
 
 def boot_after_uart_setup(self):
@@ -524,8 +530,11 @@ def memory_hexdump(cpustate, addr, label='', n=1, first_line=True, int_values=Fa
         _range = range(n)
     elif isinstance(n, tuple):
         _range = n
+
+    addr_str = f"{addr:#010x}"
+
     if first_line:
-        mem_str = f"{addr:#010x}:" + (f" ({label})" if label else "") + "\n"
+        mem_str = f"{addr_str}:" + (f" ({label})" if label else "") + "\n"
     else:
         mem_str = "\n"
     for i in _range:
@@ -542,9 +551,15 @@ def memory_hexdump(cpustate, addr, label='', n=1, first_line=True, int_values=Fa
             value_hex += ' ' + ' '.join(f'{x:02x}' for x in value[8:])
             value = value_hex
 
-        mem_str += f"\t{i * 0x10:#010x}: {value} |{value_str}|\n"
+        cur_offset = i * 0x10
+        mem_str += f"\t{cur_offset:#010x}: {value} |{value_str}|\n"
 
     return mem_str
+
+
+def write_addr(self, cpustate, tb, hook, addr, value, label=None):
+    assert isinstance(value, bytes)
+    panda.physical_memory_write(addr, value)
 
 
 def func_called(self, cpustate, tb, hook, func_name='', num_args=0, args=None, **kwargs):
@@ -605,14 +620,17 @@ r12: %08x""" % (R[15], R[14], R[13], R[0], R[1], R[2], R[3], R[4], R[5], R[6], R
     else:
         try:
             r = cpustate.env_ptr.regs[reg]
-
+            addr_str = f"{r:#010x}"
             if label:
-                log_emit(self, cpustate, f"{label}: r{reg} => {r:#010x}")
+                log_emit(self, cpustate, f"{label}: r{reg} => {addr_str}")
             else:
-                log_emit(self, cpustate, f"r{reg} => {r:#010x}")
+                log_emit(self, cpustate, f"r{reg} => {addr_str}")
 
-            if r != 0 and dump > 0:
-                log_emit(self, cpustate, memory_hexdump(cpustate, r, n=dump), color=COLOR_PURPLE)
+            if r == 0:
+                return
+            if (isinstance(dump, int) and dump > 0) or (isinstance(dump, tuple), len(dump) > 0):
+                content = memory_hexdump(cpustate, r, n=dump)
+                log_emit(self, cpustate, content, color=COLOR_PURPLE)
         except Exception:
             pass
 
@@ -666,6 +684,64 @@ def shannon_fatal_error(self, cpustate, tb, hook, error_name=None, **kwargs):
                 break
             err_info_list += 8
     log_emit(self, cpustate, f"FatalError({err_desc})", color=COLOR_RED_INTENSE)
+
+
+def warm_boot_change(self, cpustate, tb, hook, **kwargs):
+    soc_per = self.get_peripheral("SOC")
+    soc_per.warm_boot[1] = 0x1
+
+
+def dump_memory_sections(self, cpustate, tb, hook, **kwargs):
+    table = 0x40008000
+    ap_str = {0b000: "--", 0b001: "rw", 0b010: "rw", 0b011: "rw", 0b100: "--", 0b101: "r-", 0b110: "r-", 0b111: "r-"}
+    sections = list()
+
+    for sec in range(0, 0x4000, 4):
+        desc = panda.physical_memory_read(table | sec, 4)
+        (desc, ) = struct.unpack("<I", desc)
+        if sec != 0 and desc == 0:
+            continue
+
+        start_addr = sec << 0x12  # virtual addr
+        ap = ((desc >> 10) & 3) | ((desc >> 13) & 4)
+        prot = ap_str[ap]
+        pxn = desc & 1
+        xn = desc & (1 << 4)
+        if pxn == 1:
+            xn = 1
+        if prot != "--" and xn == 0:
+            prot += "x"
+        else:
+            prot += "-"
+        if sec == 0x10a8:
+            print(f"({sec:x}, {start_addr:08x}, {prot}, {desc:#08x})")
+        if len(sections) == 0:
+            sections.append((start_addr, 0x100000, prot),)
+        else:
+            end_addr = sections[-1][0] + sections[-1][1]
+            if sections[-1][2] == prot and end_addr == start_addr:  # same permissions and adjacent section
+                sections[-1] = (sections[-1][0], sections[-1][1] + 0x100000, sections[-1][2])
+            else:
+                sections.append((start_addr, 0x100000, prot),)
+
+    for sec in sections:
+        print(f"{sec[0]:08x} - {sec[0] + sec[1]:08x} {sec[2]}")
+
+
+def protect_write_access(self, cpustate, memory_access_desc, label=None, const_value=0):
+    addr = memory_access_desc.addr
+    acc_size = memory_access_desc.size
+    format = unpack_sym[acc_size]
+    (value,) = struct.unpack(format, panda.virtual_memory_read(cpustate, addr, acc_size))
+    value = const_value
+    panda.physical_memory_write(addr, struct.pack("<I", value))
+    offset = addr - memory_access_desc.hook.start_address
+    log_emit(
+        self, cpustate,
+        f"Protected write access: PC({cpustate.panda_guest_pc:#010x}) Addr({addr:#010x})" +
+        (f" ({label}+{offset:#x})" if label else "") + f" Value({value:#x})",
+        color=COLOR_PURPLE
+    )
 
 
 def write_hook(self, cpustate, memory_access_desc, label=None):

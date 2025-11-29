@@ -56,7 +56,7 @@ class ShannonOSI(ABC):
         for t in tasks:
             if t.name == name:
                 return t
-        
+
         return None
 
     def get_current_task_id(self):
@@ -71,7 +71,7 @@ class ShannonOSI(ABC):
             return struct.unpack("I", self.panda.physical_memory_read(sym.address, 4))[0]
 
     def get_current_task_name(self, cpustate):
-        if self.modem_soc.name == "S5123AP" or self.modem_soc.name == "S5123":
+        if self.modem_soc.name in ("S5123AP", "S5123"):
             sym = self.symbol_table.lookup("SYM_CUR_TASK_PTR")
             if sym is None:
                 return "ERROR_MISSING_SYM"

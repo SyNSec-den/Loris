@@ -99,7 +99,7 @@ TASK_LAYOUT_BY_NAME = OrderedDict(
 
 
 def get_task_layout_by_name(name):
-    return TASK_LAYOUTS_BY_NAME[name]
+    return TASK_LAYOUT_BY_NAME[name]
 
 
 def get_task_layouts():
