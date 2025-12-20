@@ -1,0 +1,7 @@
+[submodule "FirmWire"]
+	path = FirmWire
+	url = https://github.com/SyNSec-den/FirmWire.git
+	branch = loris
+[submodule "binaries"]
+	path = binaries
+	url = https://github.com/MustBastani/firmwire.binaries.git
