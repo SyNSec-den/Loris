@@ -30,7 +30,9 @@ log = logging.getLogger(__name__)
 
 
 class LorisSegment(cle.Segment):
-    def __init__(self, readable: bool, writable: bool, executable: bool, *args, **kwargs):
+    def __init__(
+        self, readable: bool, writable: bool, executable: bool, *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.readable = readable
         self.writable = writable
@@ -81,16 +83,23 @@ class LorisLoader(cle.Loader):
                 entry_point = emu.qemu.regs.pc
         main_section: avatar2.MemoryRange = emu.get_main_section()
         end_address = main_section.address + main_section.size - 1
-        log.debug(f"Loading main section: {main_section.address:#010x}-{end_address:#010x}")
+        log.debug(
+            f"Loading main section: {main_section.address:#010x}-{end_address:#010x}"
+        )
         main_section_data = emu.panda.virtual_memory_read(
-            emu.panda.get_cpu(), main_section.address, main_section.size)
+            emu.panda.get_cpu(), main_section.address, main_section.size
+        )
         if emu.loader.ARCH.qemu_name == "mipsel":
             arch = archinfo.ArchPcode("MIPS:LE:32:default")
         else:
             arch = archinfo.arch_from_id(emu.loader.ARCH.qemu_name)
         blob = cle.Blob(
-            None, io.BytesIO(main_section_data), arch=arch, base_addr=main_section.address,
-            entry_point=entry_point)
+            None,
+            io.BytesIO(main_section_data),
+            arch=arch,
+            base_addr=main_section.address,
+            entry_point=entry_point,
+        )
         if load_options is None:
             load_options = dict()
         super().__init__(blob, **load_options)
@@ -102,7 +111,7 @@ class LorisLoader(cle.Loader):
         return self._task
 
     @property
-    def workspace(self) -> Optional[Workspace]:
+    def workspace(self) -> Workspace:
         return self._workspace
 
     @property
@@ -121,11 +130,11 @@ class LorisLoader(cle.Loader):
         return copy.deepcopy(self)
 
     def _load_other_sections(
-        self,
-        emu: firmwire.loader.FirmWireEmu,
-        main_section: avatar2.MemoryRange
+        self, emu: firmwire.loader.FirmWireEmu, main_section: avatar2.MemoryRange
     ):
-        self.main_object.segments = self._create_segments(main_section, self.main_object.segments)
+        self.main_object.segments = self._create_segments(
+            main_section, self.main_object.segments
+        )
 
         # Load segments data, except main section and memory mapped to peripherals
         for mem_range in emu.avatar.memory_ranges:
@@ -139,35 +148,51 @@ class LorisLoader(cle.Loader):
             if "r" not in sec.permissions:
                 continue
 
-            data = emu.panda.virtual_memory_read(emu.panda.get_cpu(), sec.address, sec.size)
+            try:
+                data = emu.panda.virtual_memory_read(
+                    emu.panda.get_cpu(), sec.address, sec.size
+                )
+            except ValueError:
+                log.warning(
+                    f"Skip unmapped section {sec.name} at {sec.address:#010x} (size={sec.size:#x})"
+                )
+                continue
             if sec.size >= 0x10000000:
                 begin = sec.address
                 end = sec.address + sec.size - 1
-                log.warning(f"Large data section {sec.name} ({begin:#010x} - {end:#010x}) "
-                            f"will be left uninitialized")
+                log.warning(
+                    f"Large data section {sec.name} ({begin:#010x} - {end:#010x}) "
+                    f"will be left uninitialized"
+                )
             else:
                 arch = archinfo.arch_from_id(emu.loader.ARCH.qemu_name)
-                blob = cle.Blob(None, io.BytesIO(data), arch=arch, base_addr=sec.address)
+                blob = cle.Blob(
+                    None, io.BytesIO(data), arch=arch, base_addr=sec.address
+                )
                 blob.segments = self._create_segments(sec, blob.segments)
                 try:
                     self._map_object(blob)
                 except cle.CLEError:
-                    log.warning(f"Skip loading section {sec.address:#010x} (size={sec.size:#x})")
+                    log.warning(
+                        f"Skip loading section {sec.address:#010x} (size={sec.size:#x})"
+                    )
 
     @staticmethod
     def _create_segments(
-        section: avatar2.MemoryRange, 
-        segments: cle.Regions[cle.Segment]
+        section: avatar2.MemoryRange, segments: cle.Regions[cle.Segment]
     ) -> List[LorisSegment]:
-        return [LorisSegment(
-            "r" in section.permissions,
-            "w" in section.permissions,
-            "x" in section.permissions,
-            vaddr=segment.vaddr,
-            filesize=segment.filesize,
-            memsize=segment.memsize,
-            offset=segment.offset
-        ) for segment in segments]
+        return [
+            LorisSegment(
+                "r" in section.permissions,
+                "w" in section.permissions,
+                "x" in section.permissions,
+                vaddr=segment.vaddr,
+                filesize=segment.filesize,
+                memsize=segment.memsize,
+                offset=segment.offset,
+            )
+            for segment in segments
+        ]
 
 
 def get_firmwire_args(workspace: Workspace) -> argparse.Namespace:
@@ -218,21 +243,28 @@ def variable_manager(
     except AttributeError:
         stack_iv = utils.Interval(0, 0)
     end_addr = max(
-        main_section.address + main_section.size, (main_section.address & 0xf0000000) + 0x10000000)
+        main_section.address + main_section.size,
+        (main_section.address & 0xF0000000) + 0x10000000,
+    )
     hook_iv = utils.Interval(main_section.address, end_addr)
     log.info(f"Task stack: {stack_iv}")
     log.info(f"Hooking memory accesses in {hook_iv}")
     var_mgr = VariableManager(stack_iv, hook_iv)
     emu.add_panda_mem_hook(
-        hook_iv.begin, hook_iv.end, var_mgr.write_panda_hook, w=True, on_before=False, 
-        on_after=True)
+        hook_iv.begin,
+        hook_iv.end,
+        var_mgr.write_panda_hook,
+        w=True,
+        on_before=False,
+        on_after=True,
+    )
     if emu.loader.NAME == SHANNON_LOADER:
         malloc_sym = emu.symbol_table.lookup("pal_MemAlloc")
         malloc_addr = malloc_sym.address & ~1
-        size_reg="r1"
+        size_reg = "r1"
     elif emu.loader.NAME == MTK_LOADER:
         malloc_addr = emu.symbols["kal_get_buffer"]
-        size_reg="a2"
+        size_reg = "a2"
     else:
         return None
     emu.add_panda_hook(malloc_addr, var_mgr.heap_alloc_hook, size_reg=size_reg)
@@ -245,9 +277,15 @@ def variable_manager(
 
         proj = LorisProject(loader)
         cfg = proj.analyses.CFGEmulated(
-            context_sensitivity_level=1, call_depth=1, starts=(task.main_fn,), keep_state=False, 
-            resolve_indirect_jumps=False)
-        loop_finder = proj.analyses[angr.analyses.LoopFinder].prep(kb=cfg.kb)(normalize=True)
+            context_sensitivity_level=1,
+            call_depth=1,
+            starts=(task.main_fn,),
+            keep_state=False,
+            resolve_indirect_jumps=False,
+        )
+        loop_finder = proj.analyses[angr.analyses.LoopFinder].prep(kb=cfg.kb)(
+            normalize=True
+        )
         if len(loop_finder.loops) == 0:
             log.error("Failed to find a loop")
             return None
@@ -256,7 +294,7 @@ def variable_manager(
 
         emu.run_until(loop_entry & ~1, temporary=True)
 
-    # This is because Panda does not provide any API to remove the memory hook 
+    # This is because Panda does not provide any API to remove the memory hook
     # and the heap alloc hook
     var_mgr.stop_recording = True
     return var_mgr
@@ -266,7 +304,6 @@ def prepare_machine(
     workspace: Workspace,
     loader: firmwire.loader.Loader,
     task_name: str,
-    before_launch: Optional[str],
     init_func: Optional[int],
 ):
     machine = loader.get_machine()
@@ -278,7 +315,7 @@ def prepare_machine(
 
     task_list = [task_name]
     if loader.NAME == SHANNON_LOADER:
-        bg_task_name = ANALYZER_TASK_NAME
+        bg_task_name = "Background"
     elif loader.NAME == MTK_LOADER:
         bg_task_name = "0IDLE"
     task_list.append(bg_task_name)
@@ -287,10 +324,10 @@ def prepare_machine(
     if not machine.initialize(loader, firmwire_args):
         log.error("Machine failed to initialize")
         return None
-    
+
     if loader.NAME == SHANNON_LOADER:
-        if not machine.load_and_inject_task(ANALYZER_MOD):
-            return None
+        # if not machine.load_and_inject_task(ANALYZER_MOD):
+        #     return None
         machine.enable_tasks_exclusive(task_list)
 
     log.info(f"Machine initialization time took {machine.time_running():.2f} seconds")
@@ -300,13 +337,6 @@ def prepare_machine(
 
     log.info("Starting emulator %s", machine.instance_name)
 
-    if before_launch:
-        mod = SourceFileLoader("before_launch", path.abspath(before_launch)).load_module()
-        if hasattr(mod, "before_launch"):
-            mod.before_launch(machine)
-        else:
-            log.warning(f"no `before_launch` function found in {before_launch}")
-
     task = machine.get_task_by_name(task_name)
     if task is None:
         log.error(f"Failed to find task: {task_name}")
@@ -315,7 +345,11 @@ def prepare_machine(
     task_regs = dict()
     if init_func is not None:
         machine.set_breakpoint(
-            task.main_fn & ~1, partial(store_regs, task_regs), temporary=True, continue_after=True)
+            task.main_fn & ~1,
+            partial(store_regs, task_regs),
+            temporary=True,
+            continue_after=True,
+        )
 
     var_mgr = variable_manager(machine, task, init_func)
     wait_for_bg_task = False
@@ -337,7 +371,6 @@ def prepare_loader(
     workspace: Workspace,
     task_name: str,
     init_func: Optional[int],
-    before_launch: Optional[str],
 ) -> Optional[LorisLoader]:
     loader_path = workspace.path("/loader.pickle.gz")
     if loader_path.exists():
@@ -348,26 +381,20 @@ def prepare_loader(
         log.error(f"{loader_path.to_path()}: no such file. `modem_file` is required")
         return None
 
-    external_peripherals = 0
-    if before_launch:
-        mod = SourceFileLoader("before_launch", path.abspath(before_launch)).load_module()
-        if hasattr(mod, "add_peripherals"):
-            external_peripherals = 1
-
     loader = firmwire.loader.load_any(
-        modem_file, workspace, keep_trying=True, external_peripherals=external_peripherals,
-        loader_specific_args={"mtk": {"nv_data": "/loris_analyzer_deps/FirmWire/mnt/"}})
+        modem_file,
+        workspace,
+        keep_trying=True,
+        loader_specific_args={"mtk": {"nv_data": "/loris_analyzer_deps/FirmWire/mnt/"}},
+    )
 
     if loader is None:
         log.error("Failed to load firmware")
         return None
 
-    if before_launch:
-        mod = SourceFileLoader("before_launch", path.abspath(before_launch)).load_module()
-        if hasattr(mod, "add_peripherals"):
-            mod.add_peripherals(loader)
-
-    machine, var_mgr, task, regs = prepare_machine(workspace, loader, task_name, before_launch, init_func)
+    machine, var_mgr, task, regs = prepare_machine(
+        workspace, loader, task_name, init_func
+    )
 
     uses_thumb = False
     if machine.loader.ARCH.qemu_name == "arm" and task.main_fn & 1 == 1:
@@ -376,20 +403,25 @@ def prepare_loader(
     symbols_path = workspace.path("/symbol_table.sym")
     machine.symbol_table.save_json(symbols_path.to_path())
 
-    loader = LorisLoader(machine, task, workspace=workspace, symbols=symbols_path.to_path(),
-                         load_options={"auto_load_libs": False})
+    loader = LorisLoader(
+        machine,
+        task,
+        workspace=workspace,
+        symbols=symbols_path.to_path(),
+        load_options={"auto_load_libs": False},
+    )
     loader.var_mgr = var_mgr
 
-    import IPython
-    IPython.embed()
+    # import IPython
+    # IPython.embed()
 
     if machine.loader.NAME == SHANNON_LOADER:
         loader.vendor = Shannon(machine.get_queues(), task, regs, thumb=uses_thumb)
     elif machine.loader.NAME == MTK_LOADER:
         loader.vendor = Mtk(task, regs)
 
-    log.info("Extracting tables...")
-    utils.extract_tables(machine, workspace)
+    # log.info("Extracting tables...")
+    # utils.extract_tables(machine, workspace)
 
     with gzip.open(loader_path.to_path(), "wb") as f:
         pickle.dump(loader, f)
@@ -398,19 +430,18 @@ def prepare_loader(
 
 
 def load_any(
-    modem_file: Optional[str],
+    modem_file: str,
     workspace: Optional[str],
     task_name: str,
     init_func: Optional[int],
-    before_launch: Optional[str],
 ) -> Optional[LorisLoader]:
     if workspace:
-        workspace = Workspace(workspace)
+        w = Workspace(workspace)
     else:
-        workspace = Workspace(modem_file + "_workspace")
+        w = Workspace(modem_file + "_workspace")
 
-    workspace.create()
+    w.create()
 
-    loader = prepare_loader(modem_file, workspace, task_name, init_func, before_launch)
+    loader = prepare_loader(modem_file, w, task_name, init_func)
 
     return loader

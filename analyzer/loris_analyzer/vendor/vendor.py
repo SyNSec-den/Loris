@@ -1,7 +1,7 @@
 import angr
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Union
 
 
 class VendorRegs(object):
@@ -15,13 +15,39 @@ class Vendor(ABC):
         self._regs = VendorRegs()
         self._symbol_mappings = symbol_mappings
         self.NAS_EMM_MSG_ID_LIST = [
-            0x42, 0x44, 0x45, 0x46, 0x49, 0x4b, 0x4e, 0x4f,
-            0x50, 0x52, 0x54, 0x55, 0x5d, 0x61, 0x62, 0x64,
-            0x68
+            0x42,
+            0x44,
+            0x45,
+            0x46,
+            0x49,
+            0x4B,
+            0x4E,
+            0x4F,
+            0x50,
+            0x52,
+            0x54,
+            0x55,
+            0x5D,
+            0x61,
+            0x62,
+            0x64,
+            0x68,
         ]
         self.NAS_ESM_MSG_ID_LIST = [
-            0xc1, 0xc5, 0xc9, 0xcd, 0xd1, 0xd3, 0xd5, 0xd7, 
-            0xd9, 0xdb, 0xdc, 0xe8, 0xea, 0xeb
+            0xC1,
+            0xC5,
+            0xC9,
+            0xCD,
+            0xD1,
+            0xD3,
+            0xD5,
+            0xD7,
+            0xD9,
+            0xDB,
+            0xDC,
+            0xE8,
+            0xEA,
+            0xEB,
         ]
         self.SEC_HDR_TYPE_RANGE = range(4)
         self._symbols = dict()
@@ -36,9 +62,8 @@ class Vendor(ABC):
         state: angr.SimState,
         task: str,
         protocol_disc: int = 7,
-        nas_msg_id_list: List[int] = None
-    ):
-        ...
+        nas_msg_id_list: Optional[Union[int, List[int]]] = None,
+    ): ...
 
     def load_registers(self, state: angr.SimState):
         for name, value in self._regs.__dict__.items():
@@ -50,8 +75,7 @@ class Vendor(ABC):
                 pass
 
     @abstractmethod
-    def prepare_mapping(self, m):
-        ...
+    def prepare_mapping(self, m): ...
 
     def add_symbols(self, symbols: List[dict]):
         if not hasattr(self, "_symbols"):

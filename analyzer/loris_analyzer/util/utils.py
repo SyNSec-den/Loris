@@ -19,7 +19,6 @@ from itertools import count, groupby
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple, Union
 
-from firmwire.vendor.shannon.sael3 import SAEL3
 from loris_analyzer.globals import *
 
 
@@ -41,7 +40,9 @@ class Interval(intervaltree.Interval):
 
 
 class SimProcedure(angr.SimProcedure):
-    def __init__(self, *args, analyzer=None, **kwargs):  # to avoid passing `analyzer` to angr
+    def __init__(
+        self, *args, analyzer=None, **kwargs
+    ):  # to avoid passing `analyzer` to angr
         super().__init__(*args, **kwargs)
 
 
@@ -57,7 +58,9 @@ class SimulationManager(angr.SimulationManager):
             raise ValueError(f"expected Exception subclass got {ex_class}")
         self._exception_list = exception_list
 
-    def step_state(self, state: angr.SimState, successor_func=None, error_list=None, **run_args):
+    def step_state(
+        self, state: angr.SimState, successor_func=None, error_list=None, **run_args
+    ):
         error_list = error_list if error_list is not None else self._errored
 
         try:
@@ -65,7 +68,9 @@ class SimulationManager(angr.SimulationManager):
         except Exception as ex:
             if any([isinstance(ex, bypass_ex) for bypass_ex in self._exception_list]):
                 log.warning(f"Caught an exception to bypass: {ex}")
-                error_list.append(angr.sim_manager.ErrorRecord(state, ex, sys.exc_info()[2]))
+                error_list.append(
+                    angr.sim_manager.ErrorRecord(state, ex, sys.exc_info()[2])
+                )
                 state.solver.downsize()
                 return dict()
             else:
@@ -76,12 +81,15 @@ def trim_global_memory():
     claripy.reset()
     gc.collect()
     time.sleep(1.0)
-    libc = ctypes.CDLL('libc.so.6')
+    libc = ctypes.CDLL("libc.so.6")
     libc.malloc_trim(0)
 
 
 def ast_debug_str(ast: claripy.ast.Base, max_depth: int = 5):
-    return ast.shallow_repr(max_depth=max_depth) + f' (depth: {ast.depth}, variables: {ast.variables})'
+    return (
+        ast.shallow_repr(max_depth=max_depth)
+        + f" (depth: {ast.depth}, variables: {ast.variables})"
+    )
 
 
 def import_source_file(filename: Union[str, Path], modname: str) -> types.ModuleType:
@@ -102,7 +110,7 @@ def import_source_file(filename: Union[str, Path], modname: str) -> types.Module
 
 def remove_suffix(input_string: str, suffix: str) -> str:
     if suffix and input_string.endswith(suffix):
-        return input_string[:-len(suffix)]
+        return input_string[: -len(suffix)]
     return input_string
 
 
@@ -156,10 +164,8 @@ def try_remove_file(p):
 
 
 def try_eval_one(
-        state: angr.SimState,
-        data: claripy.ast.bv.BV,
-        **kwargs
-    ) -> Union[int, claripy.ast.Base]:
+    state: angr.SimState, data: claripy.ast.bv.BV, **kwargs
+) -> Union[int, claripy.ast.Base]:
     try:
         return state.solver.eval_one(data, **kwargs)
     except angr.SimValueError:
@@ -176,8 +182,7 @@ def sizeof_fmt(num, suffix="B") -> str:
 
 def to_ranges(iterable):
     iterable = sorted(set(iterable))
-    for key, group in itertools.groupby(enumerate(iterable),
-                                        lambda t: t[1] - t[0]):
+    for key, group in itertools.groupby(enumerate(iterable), lambda t: t[1] - t[0]):
         group = list(group)
         yield group[0][1], group[-1][1]
 
@@ -208,11 +213,11 @@ def list_fmt(li: list, *args, indent=0, indent_ch="\t", **kwargs) -> str:
                 elems.append(e.__repr__(*args, indent=indent + 1, **kwargs))
             except TypeError:
                 elems.append(str(e))
-    join_str = ", \n" + indent_ch*(indent+1)
+    join_str = ", \n" + indent_ch * (indent + 1)
     elems_str = join_str.join(elems)
-    return f"[\n" + \
-           indent_ch*(indent+1) + elems_str + \
-           "\n" + indent_ch*indent + "]"
+    return (
+        f"[\n" + indent_ch * (indent + 1) + elems_str + "\n" + indent_ch * indent + "]"
+    )
 
 
 def dict_fmt(di: dict, *args, indent=0, indent_ch="\t", **kwargs) -> str:
@@ -231,15 +236,13 @@ def dict_fmt(di: dict, *args, indent=0, indent_ch="\t", **kwargs) -> str:
                 v_repr = v.__repr__(*args, indent=indent + 1, **kwargs)
             except TypeError:
                 v_repr = str(v)
-        items.append(
-            f"\"{range_fmt(k) if isinstance(k, range) else str(k)}\": {v_repr}"
-        )
+        items.append(f'"{range_fmt(k) if isinstance(k, range) else str(k)}": {v_repr}')
 
-    join_str = ", \n" + indent_ch*(indent+1)
+    join_str = ", \n" + indent_ch * (indent + 1)
     items_str = join_str.join(items)
-    return f"{{\n" + \
-           indent_ch*(indent+1) + items_str + \
-           "\n" + indent_ch*indent + "}"
+    return (
+        f"{{\n" + indent_ch * (indent + 1) + items_str + "\n" + indent_ch * indent + "}"
+    )
 
 
 def range_fmt(r: range) -> str:
@@ -262,7 +265,9 @@ def range_size(r: range) -> int:
     return r.stop - r.start
 
 
-def extract_interval_data(interval_tree: intervaltree.IntervalTree, addr: int, size: int) -> claripy.ast.bv.BV:
+def extract_interval_data(
+    interval_tree: intervaltree.IntervalTree, addr: int, size: int
+) -> claripy.ast.bv.BV:
     """
     :param interval_tree: the tree to search in
     :param addr: the address to look for
@@ -279,19 +284,34 @@ def extract_interval_data(interval_tree: intervaltree.IntervalTree, addr: int, s
     return claripy.Extract(start_bit, end_bit, i.data)
 
 
-def get_initialized_intervals(memory: angr.storage.memory_mixins.memory_mixin.MemoryMixin, addr_range: range):
-    obj: claripy.ast.Base = memory.load(addr_range.start, size=(addr_range.stop - addr_range.start))
+def get_initialized_intervals(
+    memory: angr.storage.memory_mixins.MemoryMixin, addr_range: range
+):
+    obj: claripy.ast.Base = memory.load(
+        addr_range.start, size=(addr_range.stop - addr_range.start)
+    )
     result_intervals = intervaltree.IntervalTree()
-    if obj.op == 'Concat':
+    if obj.op == "Concat":
         this_base_bit = addr_range.start * 8
         arg: claripy.ast.Base
         arg_group = []
-        for arg in (reversed(obj.args) if memory.endness == archinfo.Endness.LE else obj.args):
-            if this_base_bit % 8 == 0 and arg.op == 'BVS' and arg.uninitialized and f'{this_base_bit // 8:x}' in next(
-                    iter(arg.variables)) and arg.length % 8 == 0:
+        for arg in (
+            reversed(obj.args) if memory.endness == archinfo.Endness.LE else obj.args
+        ):
+            if (
+                this_base_bit % 8 == 0
+                and arg.op == "BVS"
+                and arg.uninitialized
+                and f"{this_base_bit // 8:x}" in next(iter(arg.variables))
+                and arg.length % 8 == 0
+            ):
                 if len(arg_group) >= 1:
-                    result_intervals.addi((this_base_bit - sum(this_arg.length for this_arg in arg_group)) // 8,
-                                          this_base_bit // 8, claripy.Concat(*arg_group))
+                    result_intervals.addi(
+                        (this_base_bit - sum(this_arg.length for this_arg in arg_group))
+                        // 8,
+                        this_base_bit // 8,
+                        claripy.Concat(*arg_group),
+                    )
                     arg_group.clear()
             else:
                 arg_group.append(arg)
@@ -300,8 +320,11 @@ def get_initialized_intervals(memory: angr.storage.memory_mixins.memory_mixin.Me
 
         if len(arg_group) >= 1:
             assert this_base_bit % 8 == 0
-            result_intervals.addi((this_base_bit - sum(this_arg.length for this_arg in arg_group)) // 8,
-                                  this_base_bit // 8, claripy.Concat(*arg_group))
+            result_intervals.addi(
+                (this_base_bit - sum(this_arg.length for this_arg in arg_group)) // 8,
+                this_base_bit // 8,
+                claripy.Concat(*arg_group),
+            )
     else:
         result_intervals.addi(addr_range.start, addr_range.stop, obj)
 
@@ -309,13 +332,14 @@ def get_initialized_intervals(memory: angr.storage.memory_mixins.memory_mixin.Me
 
 
 def get_updated_memory(
-        state: angr.SimState,
-        symbolic_memory: intervaltree.IntervalTree
+    state: angr.SimState, symbolic_memory: intervaltree.IntervalTree
 ) -> intervaltree.IntervalTree:
     intervals = intervaltree.IntervalTree()
     for i in symbolic_memory.all_intervals:
         value = state.memory.load(i.begin, size=i.data.length // 8, endness="Iend_LE")
-        is_same = value.symbolic and value.op == "BVS" and value.variables == i.data.variables
+        is_same = (
+            value.symbolic and value.op == "BVS" and value.variables == i.data.variables
+        )
         changed = not is_same
         if changed:
             log.debug(
@@ -339,11 +363,10 @@ def get_heap_intervals(state: angr.SimState):
         size = try_eval_one(state, ck.get_data_size())
         if not isinstance(size, int):
             continue
-        log.debug(
-            f"get_heap_intervals:"
-            f"ptr={ptr:#010x}, size={size:#x}"
+        log.debug(f"get_heap_intervals:" f"ptr={ptr:#010x}, size={size:#x}")
+        intervals.update(
+            get_initialized_intervals(state.memory, range(ptr, ptr + size))
         )
-        intervals.update(get_initialized_intervals(state.memory, range(ptr, ptr + size)))
 
     return intervals
 
@@ -377,32 +400,3 @@ def compress_numbers(data: List[int]) -> List[Union[range, int]]:
     data.sort()
     groups = [list(v) for _, v in groupby(data, lambda n, c=count(step=1): n - next(c))]
     return [range(j[0], j[-1] + 1) if len(j) > 1 else j[0] for j in groups]
-
-
-def extract_tables(loader, workspace):
-    mappings_path = workspace.path(f"/{MAPPINGS_FILE}")
-    if not mappings_path.exists():
-        log.warning(f"No such file: {mappings_path}")
-        return
-    mappings = import_source_file(mappings_path.to_path(), remove_suffix(MAPPINGS_FILE, ".py"))
-    if not hasattr(mappings, TABLES):
-        log.warning(f"No such attr: {TABLES}")
-        return
-    table = mappings.__getattribute__(TABLES)
-    sael3 = SAEL3(loader)
-
-    items = sael3.get_msg_forward_table(*table["forward"])
-    with open(workspace.path("/msg_forward_table.json").to_path(), "w") as f:
-        json.dump({table["forward"][0]: (table["forward"][1], items)}, f)
-    items = sael3.saemm_get_ie_dispatch_table(*table["ie"])
-    with open(workspace.path("/ie_dispatch_table.json").to_path(), "w") as f:
-        json.dump({table["ie"][0]: (table["ie"][1], items)}, f)
-    items = sael3.saemm_get_msg_dispatch_table(*table["ext"])
-    with open(workspace.path("/msg_dispatch_table_ext.json").to_path(), "w") as f:
-        json.dump({table["ext"][0]: (table["ext"][1], items)}, f)
-    items = sael3.saemm_get_msg_dispatch_table(*table["int"])
-    with open(workspace.path("/msg_dispatch_table_int.json").to_path(), "w") as f:
-        json.dump({table["int"][0]: (table["int"][1], items)}, f)
-    items = sael3.saemm_get_msg_dispatch_table(*table["radio"])
-    with open(workspace.path("/msg_dispatch_table_radio.json").to_path(), "w") as f:
-        json.dump({table["radio"][0]: (table["radio"][1], items)}, f)

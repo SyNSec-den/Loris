@@ -24,10 +24,14 @@ class Shannon(Vendor):
             for name in regs.__dict__.keys():
                 if name == "_target":
                     continue
-                self._regs.__setattr__(name, regs.__getattribute__(name))
+                try:
+                    self._regs.__setattr__(name, regs.__getattribute__(name))
+                except ValueError:
+                    log.debug(f"Skipping non-scalar register: {name}")
 
     def add_input_fields(
-        self, state: angr.SimState,
+        self,
+        state: angr.SimState,
         task: str,
         protocol_disc: int,
         nas_msg_id_list: Optional[Union[int, List[int]]] = None,
@@ -42,22 +46,30 @@ class Shannon(Vendor):
         if self._thumb:
             state.regs.pc |= 1
 
-    def prepare_mapping(self, m) -> dict:
+    def prepare_mapping(self, m) -> Optional[dict]:
         if m["name"] == "pal_MsgReceiveMbx":
+            try:
+                qid = self._get_qid_by_name(SHANNON_SAEL3)
+            except KeyError:
+                log.error(f"Failed to find queue {SHANNON_SAEL3} for mapping")
+                return None
             m["kwargs"] = {
                 "num_msg_buf": 1,
-                "qid": self._get_qid_by_name(SHANNON_SAEL3),
+                "qid": qid,
                 # "sync_qid": self._vendor["queues"].get("SAEL3_SYNC"),
             }
 
         return m
 
     def _add_input_fields_sael3(
-        self, state: angr.SimState,
+        self,
+        state: angr.SimState,
         protocol_disc: int,
         nas_msg_id_list: Optional[Union[int, List[int]]] = None,
     ):
-        assert protocol_disc == 2 or protocol_disc == 7, "Unknown protocol discriminator"
+        assert (
+            protocol_disc == 2 or protocol_disc == 7
+        ), "Unknown protocol discriminator"
 
         if nas_msg_id_list is None:
             if protocol_disc == 7:
@@ -68,7 +80,7 @@ class Shannon(Vendor):
             nas_msg_id_list = [nas_msg_id_list]
 
         # Get message info
-        msg_id = 0x3c7b
+        msg_id = 0x3C7B
         src_qid = self._get_qid_by_name("LTERRC")
         assert src_qid, "no such queue: LTERRC"
         dst_qid = self._get_qid_by_name(SHANNON_SAEL3)
@@ -88,7 +100,9 @@ class Shannon(Vendor):
         ptr_size = state.arch.bits // bw
         p_payload = p_msg + qitem.header_size
         state.memory.store(p_payload, 0, size=1)
-        p_ded_info_nas = state.memory.load(p_payload + 8, size=ptr_size, endness="Iend_LE")
+        p_ded_info_nas = state.memory.load(
+            p_payload + 8, size=ptr_size, endness="Iend_LE"
+        )
         assert p_ded_info_nas.uc_alloc_depth == 0
 
         # the next load will use state.uc_manager to allocate a memory region for p_ded_info_nas
@@ -110,7 +124,9 @@ class Shannon(Vendor):
         else:
             raise AssertionError("Unknown protocol discriminator")
         name = utils.var_key2name(key)
-        nas_msg_id = state.solver.BVS(name, size * bw, explicit_name=True, eternal=True, key=key)
+        nas_msg_id = state.solver.BVS(
+            name, size * bw, explicit_name=True, eternal=True, key=key
+        )
 
         state.solver.add(claripy.Or(*(nas_msg_id == n for n in nas_msg_id_list)))
 
@@ -118,7 +134,9 @@ class Shannon(Vendor):
         size = 1
         key = (INPUT_PREFIX, addr, size, SHT_PD)
         name = utils.var_key2name(key)
-        first_byte = state.solver.BVS(name, size * bw, explicit_name=True, eternal=True, key=key)
+        first_byte = state.solver.BVS(
+            name, size * bw, explicit_name=True, eternal=True, key=key
+        )
         pd = first_byte[3:0]
         state.solver.add(pd == protocol_disc)  # EMM Message
 
@@ -161,26 +179,31 @@ class Shannon(Vendor):
         msg_name = "MM_RRC_DATA_IND"
         p_msg_name = heap.allocate(state, len(msg_name))
         state.memory.store(p_msg_name, msg_name, size=len(msg_name), endness="Iend_BE")
-        
+
         nrmm_data = struct.pack(
             "<IIIBBHIIIIBHBIIIH",
-            0x440e087,  # field_0x0
-            (0x440e087 >> 0xc) | 0x7fe00400,  # field_0x4
-            (0x440e087 >> 0x16) | 0x7fe00400,  # field_0x8
+            0x440E087,  # field_0x0
+            (0x440E087 >> 0xC) | 0x7FE00400,  # field_0x4
+            (0x440E087 >> 0x16) | 0x7FE00400,  # field_0x8
             0x40,  # field_0xc
             0,  # domain_type
             0,
             0x80,  # field_0x10
-            0, 0, 0,
+            0,
+            0,
+            0,
             4,  # field_0x20
-            0, 0,
+            0,
+            0,
             0x48,  # size
             p_msg_name,  # name
             p_msg + 8,  # pData
             0x1000,  # dataLength
         )
         p_nrmm_data = heap.allocate(state, len(nrmm_data))
-        state.memory.store(p_nrmm_data, nrmm_data, size=len(nrmm_data), endness="Iend_BE")
+        state.memory.store(
+            p_nrmm_data, nrmm_data, size=len(nrmm_data), endness="Iend_BE"
+        )
 
         state.inspect.b("call", when=angr.BP_AFTER, action=self._function_hooks)
         state.globals[SHANNON_MSG_BUF] = p_nrmm_data
@@ -191,21 +214,29 @@ class Shannon(Vendor):
         faddr = state.inspect.function_address & ~1
         faddr = utils.try_eval_one(state, faddr)
         ptr_size = state.arch.bits // state.arch.byte_width
-        if faddr == 0x41c54000:
+        if faddr == 0x41C54000:
             # set FtObj ptr
             param_1 = state.regs.r0
-            p_ftobj = 0x46b5853c
-            pp_ftobj = state.memory.load(param_1 + 0x24, size=ptr_size, endness="Iend_LE")
+            p_ftobj = 0x46B5853C
+            pp_ftobj = state.memory.load(
+                param_1 + 0x24, size=ptr_size, endness="Iend_LE"
+            )
             state.memory.store(pp_ftobj, p_ftobj, size=ptr_size, endness="Iend_LE")
             state.memory.store(param_1 + 0x14, 1, size=4, endness="Iend_LE")
-            p_transceiver = state.memory.load(p_ftobj + 0x24, size=ptr_size, endness="Iend_LE")
+            p_transceiver = state.memory.load(
+                p_ftobj + 0x24, size=ptr_size, endness="Iend_LE"
+            )
 
             p_nrmm_data = state.globals[SHANNON_MSG_BUF]
             pp_nrmm_data = heap.allocate(state, ptr_size)
-            state.memory.store(pp_nrmm_data, p_nrmm_data, size=ptr_size, endness="Iend_LE")
+            state.memory.store(
+                pp_nrmm_data, p_nrmm_data, size=ptr_size, endness="Iend_LE"
+            )
 
             state.memory.store(p_transceiver + 0x10, 1, size=4, endness="Iend_LE")
-            state.memory.store(p_transceiver + 0x20, pp_nrmm_data, size=ptr_size, endness="Iend_LE")
+            state.memory.store(
+                p_transceiver + 0x20, pp_nrmm_data, size=ptr_size, endness="Iend_LE"
+            )
 
             print(f"_function_hooks: SchedDataPriority={param_1}, pp_ftobj={pp_ftobj}")
             state.globals[START_VAR_RECORD] = True

@@ -2,7 +2,7 @@ import angr
 import claripy.ast.base
 import copy
 import functools
-import intervaltree
+import intervaltree  # type: ignore
 import itertools
 import json
 import logging
@@ -13,6 +13,7 @@ import re
 import time
 
 from collections import abc, OrderedDict
+from importlib.machinery import SourceFileLoader
 from typing import Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from loris_analyzer.globals import *
@@ -37,11 +38,13 @@ def suc_logger(state: angr.SimState):
 def reg_logger(state: angr.SimState):
     ip = state.solver.eval_upto(state.inspect.reg_write_offset, 1, cast_to=int)
     if ip == 68:
-        print(f"reg_logger: reg_write_offset={state.inspect.reg_write_offset}, "
-              f"reg_write_expr={state.inspect.reg_write_expr}, "
-              f"reg_write_length={state.inspect.reg_write_length}, "
-              f"reg_write_condition={state.inspect.reg_write_condition}, "
-              f"reg_write_endness={state.inspect.reg_write_endness}")
+        print(
+            f"reg_logger: reg_write_offset={state.inspect.reg_write_offset}, "
+            f"reg_write_expr={state.inspect.reg_write_expr}, "
+            f"reg_write_length={state.inspect.reg_write_length}, "
+            f"reg_write_condition={state.inspect.reg_write_condition}, "
+            f"reg_write_endness={state.inspect.reg_write_endness}"
+        )
 
 
 def has_successors(state: angr.SimState):
@@ -50,7 +53,9 @@ def has_successors(state: angr.SimState):
 
 def fork_logger(state: angr.SimState):
     successors = state.inspect.sim_successors.successors
-    print(f"Forking states: {state.addr:#010x} -> [{', '.join([hex(s.addr) for s in successors])}]")
+    print(
+        f"Forking states: {state.addr:#010x} -> [{', '.join([hex(s.addr) for s in successors])}]"
+    )
 
 
 class StateDump(NamedTuple):
@@ -59,9 +64,22 @@ class StateDump(NamedTuple):
 
 
 class LorisAnalyzer:
-    def __init__(self, workspace: Workspace, loader: LorisLoader, soft_memory_limit: int):
+    def __init__(
+        self,
+        workspace: Workspace,
+        spec: Optional[str],
+        loader: LorisLoader,
+        soft_memory_limit: int,
+    ):
         self._bp = dict()
         self._workspace = workspace
+        if spec is None:
+            log.warning("No spec provided, this may lead to crashes")
+            self.spec_mod = None
+        else:
+            self.spec_mod = SourceFileLoader(
+                "spec", os.path.abspath(spec)
+            ).load_module()
         self._project = LorisProject(loader)
         self._symbols = copy.deepcopy(loader.symbol_table)
         self._var_mgr = copy.deepcopy(loader.var_mgr)
@@ -115,15 +133,21 @@ class LorisAnalyzer:
             for st in states:
                 self._setup_inspection(st, irsb=True, constraints=True)
                 self._additional_constraints(st)
-                log.debug(f"{st}.solver.constraints={utils.list_fmt(st.solver.constraints)}")
-            sm: angr.SimulationManager = self._project.factory.simulation_manager(states)
+                log.debug(
+                    f"{st}.solver.constraints={utils.list_fmt(st.solver.constraints)}"
+                )
+            sm: angr.SimulationManager = self._project.factory.simulation_manager(
+                states
+            )
             stat = LorisStat(self._analyzer_path.join(f"stat.json").to_path())
             sm.use_technique(stat)
             dfs = angr.exploration_techniques.dfs.DFS()
             sm.use_technique(dfs)
             if self._goal_found:
                 memory_trimmer = MemoryTrimmer(
-                    src_stash="avoid", pickle_callback=functools.partial(self._pickle_findings, "found"))
+                    src_stash="avoid",
+                    pickle_callback=functools.partial(self._pickle_findings, "found"),
+                )
                 sm.use_technique(memory_trimmer)
                 sm.explore(avoid=self._second_msg)
                 sm.remove_technique(stat)
@@ -132,7 +156,9 @@ class LorisAnalyzer:
                 self._stats[f"setup{self._iter_idx}"] = time.time()
             else:
                 memory_trimmer = MemoryTrimmer(
-                    src_stash="avoid", pickle_callback=functools.partial(self._pickle_findings, "avoid"))
+                    src_stash="avoid",
+                    pickle_callback=functools.partial(self._pickle_findings, "avoid"),
+                )
                 sm.use_technique(memory_trimmer)
                 self._stats[f"setup{self._iter_idx}"] = time.time()
                 while sm.active:
@@ -144,7 +170,11 @@ class LorisAnalyzer:
                 if len(sm.found) > 0:
                     self._store_goal_constraints(sm.found)
                     memory_trimmer = MemoryTrimmer(
-                        src_stash="avoid", pickle_callback=functools.partial(self._pickle_findings, "found"))
+                        src_stash="avoid",
+                        pickle_callback=functools.partial(
+                            self._pickle_findings, "found"
+                        ),
+                    )
                     sm.use_technique(stat)
                     sm.use_technique(dfs)
                     sm.use_technique(memory_trimmer)
@@ -160,6 +190,10 @@ class LorisAnalyzer:
             log.info(f"errored: {sm.errored}")
 
             new_var, not_all_states_agree = self._next_major_var()
+            if new_var is None:
+                log.info("No more variables to explore, stopping")
+                args.rem = 0
+                break
             self._tainted_vars.add(utils.Interval(new_var.begin, new_var.end))
             self._dump_state()
             if args.n is not None:
@@ -195,7 +229,7 @@ class LorisAnalyzer:
     def log_stats(self):
         start_t = 0
         prev_t = 0
-        for (name, t) in self._stats.items():
+        for name, t in self._stats.items():
             if name == "start":
                 start_t = t
                 prev_t = t
@@ -239,21 +273,15 @@ class LorisAnalyzer:
 
     def _load_const_variables(self) -> intervaltree.IntervalTree:
         const_vars = intervaltree.IntervalTree()
-        mappings_path = self._workspace.path(f"/{MAPPINGS_FILE}")
-        if mappings_path.exists():
-            mappings = utils.import_source_file(mappings_path.to_path(), utils.remove_suffix(MAPPINGS_FILE, ".py"))
-            if hasattr(mappings, CONST_VARS):
-                const_vars.update(mappings.__getattribute__(CONST_VARS))
+        if hasattr(self.spec_mod, CONST_VARS):
+            const_vars.update(self.spec_mod.__getattribute__(CONST_VARS))
 
         return const_vars
 
     def _load_symbols(self) -> List[dict]:
         symbols = list()
-        mappings_path = self._workspace.path(f"/{MAPPINGS_FILE}")
-        if mappings_path.exists():
-            mappings = utils.import_source_file(mappings_path.to_path(), utils.remove_suffix(MAPPINGS_FILE, ".py"))
-            if hasattr(mappings, SYMBOLS):
-                symbols.extend(mappings.__getattribute__(SYMBOLS))
+        if hasattr(self.spec_mod, SYMBOLS):
+            symbols.extend(self.spec_mod.__getattribute__(SYMBOLS))
 
         return symbols
 
@@ -284,7 +312,8 @@ class LorisAnalyzer:
         state = self._project.factory.entry_state(
             soft_memory_limit=self._soft_memory_limit,
             add_options={angr.options.ZERO_FILL_UNCONSTRAINED_REGISTERS},
-            remove_options={angr.options.COPY_STATES})
+            remove_options={angr.options.COPY_STATES},
+        )
 
         self._init_globals(state)
         state = self._add_input_fields(state, args.pd, args.nas)
@@ -294,17 +323,25 @@ class LorisAnalyzer:
 
     def _setup_inspection(self, state: angr.SimState, irsb=False, constraints=False):
         # Optional inspection
-        state.inspect.remove_breakpoint("irsb", filter_func=lambda _: True)  # Remove all breakpoints
+        state.inspect.remove_breakpoint(
+            "irsb", filter_func=lambda _: True
+        )  # Remove all breakpoints
         state.inspect.b("irsb", action=self._instruction_logger)
 
         state.inspect.remove_breakpoint("constraints", filter_func=lambda _: True)
-        state.inspect.b("constraints", when=angr.BP_AFTER, action=self._constraint_logger)
+        state.inspect.b(
+            "constraints", when=angr.BP_AFTER, action=self._constraint_logger
+        )
 
         # Mandatory inspection
         state.inspect.remove_breakpoint("mem_write", filter_func=lambda _: True)
-        state.inspect.b("mem_write", when=angr.BP_AFTER, action=self._var_mgr.trace_memory_write)
+        state.inspect.b(
+            "mem_write", when=angr.BP_AFTER, action=self._var_mgr.trace_memory_write
+        )
         state.inspect.remove_breakpoint("mem_read", filter_func=lambda _: True)
-        state.inspect.b("mem_read", when=angr.BP_AFTER, action=self._var_mgr.trace_memory_read)
+        state.inspect.b(
+            "mem_read", when=angr.BP_AFTER, action=self._var_mgr.trace_memory_read
+        )
 
         # Develop inspection
         # state.inspect.b("engine_process", when=angr.BP_AFTER, action=fork_logger, condition=has_successors)
@@ -312,10 +349,7 @@ class LorisAnalyzer:
         # state.inspect.b("reg_write", when=angr.BP_AFTER, action=reg_logger)
 
     def _add_input_fields(
-        self,
-        state: angr.SimState,
-        pd: int = 7,
-        nas_msg_id: Optional[int] = None
+        self, state: angr.SimState, pd: int = 7, nas_msg_id: Optional[int] = None
     ):
         return self._vendor.add_input_fields(state, self._task.name, pd, nas_msg_id)
 
@@ -332,22 +366,16 @@ class LorisAnalyzer:
 
     def _setup_hooks(self):
         hooks = []
-        mappings_path = self._workspace.path(f"/{MAPPINGS_FILE}")
-        if mappings_path.exists():
-            mappings = utils.import_source_file(mappings_path.to_path(), utils.remove_suffix(MAPPINGS_FILE, ".py"))
-            if hasattr(mappings, SYMBOL_MAPPINGS):
-                hooks.extend(mappings.__getattribute__(SYMBOL_MAPPINGS))
+        if hasattr(self.spec_mod, SYMBOL_MAPPINGS):
+            hooks.extend(self.spec_mod.__getattribute__(SYMBOL_MAPPINGS))
         log.info(f"Added {len(hooks)} hooks from workspace")
 
         self._install_symbol_hooks(hooks + self._vendor.symbol_mappings)
 
     def _load_add_constraints(self):
         add_cns = []
-        mappings_path = self._workspace.path(f"/{MAPPINGS_FILE}")
-        if mappings_path.exists():
-            mappings = utils.import_source_file(mappings_path.to_path(), utils.remove_suffix(MAPPINGS_FILE, ".py"))
-            if hasattr(mappings, ADD_CONSTRAINTS):
-                add_cns.extend(mappings.__getattribute__(ADD_CONSTRAINTS))
+        if hasattr(self.spec_mod, ADD_CONSTRAINTS):
+            add_cns.extend(self.spec_mod.__getattribute__(ADD_CONSTRAINTS))
         log.info(f"Loaded {len(add_cns)} additional constraints from workspace")
         self._add_constraints.extend(add_cns)
 
@@ -395,18 +423,28 @@ class LorisAnalyzer:
         """
         for hook in mappings:
             hook = self._prepare_mapping(hook)
+            if hook is None:
+                continue
 
             for addr in hook["address"]:
                 simproc = hook["simproc"]
                 if not issubclass(simproc, angr.SimProcedure):
-                    log.error(f"Expected {angr.SimProcedure.__name__} got {simproc.__name__}")
+                    log.error(
+                        f"Expected {angr.SimProcedure.__name__} got {simproc.__name__}"
+                    )
                     continue
                 log.info(f"Installing hook {simproc.__name__} at {addr:#010x}")
-                self._project.hook_symbol(addr, simproc(*hook["args"], analyzer=self, **hook["kwargs"]))
+                self._project.hook_symbol(
+                    addr, simproc(*hook["args"], analyzer=self, **hook["kwargs"])
+                )
 
     def _prepare_mapping(self, m):
         if "symbol" in m:
-            addr = self._lookup_symbol(m["symbol"])
+            try:
+                addr = self._lookup_symbol(m["symbol"])
+            except KeyError:
+                log.error(f"Failed to find symbol {m['symbol']} for mapping")
+                return None
             m["address"] = addr
 
         if not isinstance(m["address"], list):
@@ -430,26 +468,37 @@ class LorisAnalyzer:
         return False
 
     def _next_major_var(self) -> Tuple[intervaltree.Interval, bool]:
-        return self._candidate_next_vars.next_var(), len(self._candidate_next_vars.rbi_vars) > 1
+        return (
+            self._candidate_next_vars.next_var(),
+            len(self._candidate_next_vars.rbi_vars) > 1,
+        )
 
     def _pickle_findings(self, stash: str, state: angr.SimState):
         global loris_finished_states
         loris_finished_states += 1
         next_var = state.vars.next_var()
         if next_var is not None:
-            self._candidate_next_vars.add_rbi_var(next_var.begin, next_var.end, next_var.data.copy())
-        p = multiprocessing.Process(target=self._pickle_findings_inner,
-                                    args=(stash, state, self._iter_idx, self._pickle_idx))
+            self._candidate_next_vars.add_rbi_var(
+                next_var.begin, next_var.end, next_var.data.copy()
+            )
+        p = multiprocessing.Process(
+            target=self._pickle_findings_inner,
+            args=(stash, state, self._iter_idx, self._pickle_idx),
+        )
         p.start()
         p.join(self._solver_timeout)
         if p.is_alive():
-            log.warning(f"Couldn't solve {state} constraints in {self._solver_timeout} seconds")
+            log.warning(
+                f"Couldn't solve {state} constraints in {self._solver_timeout} seconds"
+            )
             p.terminate()
         else:
             self._n_solutions[self._iter_idx] += 1
         self._pickle_idx += 1
 
-    def _pickle_findings_inner(self, stash: str, state: angr.SimState, iter_idx: int, pickle_idx: int):
+    def _pickle_findings_inner(
+        self, stash: str, state: angr.SimState, iter_idx: int, pickle_idx: int
+    ):
         log.info("--------------------------------")
         log.info(f"# rbi_vars: {len(state.vars.rbi_vars)}")
         log.info(f"# bbl_addrs: {len(state.history.bbl_addrs)}")
@@ -457,16 +506,24 @@ class LorisAnalyzer:
         self._dump_constraints(stash, state, iter_idx, pickle_idx)
         self._dump_solutions(stash, state, iter_idx, pickle_idx)
 
-    def _dump_constraints(self, stash: str, state: angr.SimState, iter_idx: int, pickle_idx: int):
-        filepath = self._analyzer_path.join(f"{stash}.constraints.{iter_idx}.txt").to_path()
+    def _dump_constraints(
+        self, stash: str, state: angr.SimState, iter_idx: int, pickle_idx: int
+    ):
+        filepath = self._analyzer_path.join(
+            f"{stash}.constraints.{iter_idx}.txt"
+        ).to_path()
         with open(filepath, "a") as f:
             f.write(f"{pickle_idx}\n")
             f.write(utils.list_fmt(state.solver.constraints))
             f.write("\n--------------------------------\n")
 
-    def _dump_solutions(self, stash: str, state: angr.SimState, iter_idx: int, pickle_idx: int):
+    def _dump_solutions(
+        self, stash: str, state: angr.SimState, iter_idx: int, pickle_idx: int
+    ):
         txt_fp = self._analyzer_path.join(f"{stash}.solutions.{iter_idx}.txt").to_path()
-        pickle_fp = self._analyzer_path.join(f"{stash}.solutions.{iter_idx}.{pickle_idx}.pickle").to_path()
+        pickle_fp = self._analyzer_path.join(
+            f"{stash}.solutions.{iter_idx}.{pickle_idx}.pickle"
+        ).to_path()
 
         log.info(f"Dumping solution into {pickle_fp}")
         res = self._var_mgr.eval_variables(state, n=10)
@@ -486,18 +543,32 @@ class LorisAnalyzer:
         avoid_vars = intervaltree.IntervalTree()
         avoid_var_names = set()
         for i, st in enumerate(states[1:]):
-            for iv, name in self._check_goal_constraints(states[0].solver.constraints, st.solver.constraints):
+            for iv, name in self._check_goal_constraints(
+                states[0].solver.constraints, st.solver.constraints
+            ):
                 avoid_vars.add(iv)
                 avoid_var_names.add(name)
         self._dump_goal_avoid_vars(avoid_vars)
 
         log.info(f"Dumping goal constraints into {pickle_fp}")
         self._goal_found = True
-        all_constraints = [claripy.Or(*[
-            claripy.And(*[cns for cns in self._filter_constraints(
-                st.solver.constraints, prefix=VAR_PREFIX, avoid_vars=avoid_var_names)]
-            ) for st in states
-        ])]
+        all_constraints = [
+            claripy.Or(
+                *[
+                    claripy.And(
+                        *[
+                            cns
+                            for cns in self._filter_constraints(
+                                st.solver.constraints,
+                                prefix=VAR_PREFIX,
+                                avoid_vars=avoid_var_names,
+                            )
+                        ]
+                    )
+                    for st in states
+                ]
+            )
+        ]
 
         with open(txt_fp.to_path(), "w") as f:
             f.write(str(all_constraints))
@@ -509,7 +580,8 @@ class LorisAnalyzer:
 
     @staticmethod
     def _filter_constraints(
-        constraints: Iterable[claripy.ast.base.Base], prefix: Optional[str] = None,
+        constraints: Iterable[claripy.ast.base.Base],
+        prefix: Optional[str] = None,
         avoid_vars: Optional[Set[str]] = None,
     ):
         for cns in constraints:
@@ -522,17 +594,23 @@ class LorisAnalyzer:
             yield cns
 
     def _check_goal_constraints(
-        self, constraints1: List[claripy.ast.base.Base], constraints2: List[claripy.ast.base.Base]
+        self,
+        constraints1: List[claripy.ast.base.Base],
+        constraints2: List[claripy.ast.base.Base],
     ):
         all_vars = set()
-        for cns in self._filter_constraints(itertools.chain(constraints1, constraints2), VAR_PREFIX):
+        for cns in self._filter_constraints(
+            itertools.chain(constraints1, constraints2), VAR_PREFIX
+        ):
             all_vars.update(cns.variables)
 
         for v in all_vars:
             var_constraints1 = filter(lambda _cns: v in _cns.variables, constraints1)
             var_constraints2 = filter(lambda _cns: v in _cns.variables, constraints2)
 
-            combined = itertools.starmap(claripy.Or, itertools.product(var_constraints1, var_constraints2))
+            combined = itertools.starmap(
+                claripy.Or, itertools.product(var_constraints1, var_constraints2)
+            )
             simplified_cns = list()
             for cns in combined:
                 solver = claripy.SolverCacheless()
@@ -545,7 +623,9 @@ class LorisAnalyzer:
     @staticmethod
     def _constraint_logger(state: angr.SimState):
         if any(ast.op != "BoolV" for ast in state.inspect.added_constraints):
-            print(f"{state.regs.pc}: Added path constraints: {state.inspect.added_constraints}")
+            print(
+                f"{state.regs.pc}: Added path constraints: {state.inspect.added_constraints}"
+            )
 
     @staticmethod
     def _instruction_logger(state: angr.SimState):
@@ -582,7 +662,9 @@ class LorisStat(angr.exploration_techniques.ExplorationTechnique):
             loris_stat["time"].append(curr_ts)
             loris_stat["finished"].append(loris_finished_states)
             loris_stat["active"].append(active_paths)
-            log.info(f"Finished paths: {loris_finished_states}, Active paths: {active_paths}")
+            log.info(
+                f"Finished paths: {loris_finished_states}, Active paths: {active_paths}"
+            )
             dump_stat(self._stat_filepath)
 
         return simgr

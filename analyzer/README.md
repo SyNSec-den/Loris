@@ -1,25 +1,31 @@
 # Loris Analyzer
 
-## Installation
-```Bash
-docker image build -t loris-analyzer:python -f Dockerfile.python .
-docker container create -it -v $(pwd):/loris_analyzer -v $(pwd)/../emulator:/loris_analyzer_deps/emulator --name loris-analyzer-python loris-analyzer:python
+## Overview
 
-docker image build -t loris-analyzer:dev -f Dockerfile.dev .
-docker container create -it -v $(pwd):/loris_analyzer -v $(pwd)/../emulator:/loris_analyzer_deps/emulator -v $(pwd)/../../mustbastani/angr:/angr-dev/angr --name loris-analyzer-dev loris-analyzer:dev
-```
-Pypy cannot fully run emulator. So, we need to use Python to save a loader snapshot. Run the following command in the 
-`loris-analyzer-python` container.
-```Bash
-python3 loris_analyzer.py -n 1 --debug --firmwire-log debug --angr-log info -b modem_files/CP_G973FXXSHHWI1_CP25062570_CL25257816_QB71477174_REV01_user_low_ship.tar.md5
+The Loris analyzer uses [angr](https://angr.io/) for symbolic execution of baseband firmware. Since angr is inherently slow ([why](https://docs.angr.io/en/latest/faq.html#why-is-angr-so-slow)), Loris runs it under PyPy3 instead of CPython for roughly 4x faster analysis.
+
+However, preparing the firmware binary for angr requires [FirmWire](https://github.com/FirmWire/FirmWire), which is incompatible with PyPy3. This leads to a two-stage Docker workflow:
+
+1. **Loader snapshot** (CPython + FirmWire) — creates a loader object snapshot (gzipped pickle of the binary blob ready for angr).
+2. **Long-run analysis** (PyPy3 + angr) — loads the snapshot and performs symbolic execution. *(Instructions TBD)*
+
+## Creating a Loader Snapshot
+
+The snapshot stage uses `Dockerfile.firmwire` to build a CPython environment with FirmWire and angr. It runs a single analysis iteration to produce the loader snapshot.
+
+From the repository root:
+
+```bash
+just analyzer-snapshot <path/to/binary>
 ```
 
-```Bash
-docker image build -t loris-analyzer -f Dockerfile .
-docker container create -it -v $(pwd):/loris_analyzer -v $(pwd)/../emulator:/loris_analyzer_deps/emulator --name loris-analyzer loris-analyzer
+For example:
+
+```bash
+just analyzer-snapshot binaries/oriole-bp3a.250905.014/modem.bin
 ```
 
-```Bash
-source /root/.virtualenvs/angr/bin/activate
-python3 loris_analyzer.py --debug --angr-log debug --firmwire-log debug -b md1img.img
-```
+This will:
+1. Build the `loris-analyzer:firmwire` Docker image (if not already built)
+2. Run the analyzer container with CPython, executing a single iteration (`-n 1`) to generate the snapshot
+3. Output the snapshot to `<binary>_workspace/loader.pickle.gz`
