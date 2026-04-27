@@ -5,7 +5,11 @@ emulate: build-firmwire
         --name loris-emulator \
         loris-emulator
 
-analyze:
+analyze: build-analyzer
+    docker run --rm -it \
+        -v $(pwd)/analyzer:/loris_analyzer \
+        -v $(pwd)/binaries:/binaries \
+        --name loris-analyzer loris-analyzer
 
 analyzer-snapshot binary: build-analyzer-firmwire
     rm -f {{binary}}_workspace/loader.pickle.gz
@@ -22,6 +26,12 @@ analyzer-firmwire: build-analyzer-firmwire
         -v $(pwd)/binaries:/binaries \
         -v $(pwd)/FirmWire:/loris_analyzer_deps/FirmWire \
         --name loris-analyzer-firmwire loris-analyzer:firmwire
+
+build-analyzer: update-submodules
+    docker image build \
+        -t loris-analyzer \
+        -f analyzer/Dockerfile \
+        .
 
 build-analyzer-firmwire:
     docker image build \

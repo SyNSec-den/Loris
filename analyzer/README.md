@@ -29,3 +29,16 @@ This will:
 1. Build the `loris-analyzer:firmwire` Docker image (if not already built)
 2. Run the analyzer container with CPython, executing a single iteration (`-n 1`) to generate the snapshot
 3. Output the snapshot to `<binary>_workspace/loader.pickle.gz`
+
+## Run Analyzer
+
+Prepare the analyzer container running `just analyze` and from container run:
+
+```bash
+MODEM="oriole-bp3a.250905.014"
+NAS="0x42"
+WORKSPACE="_output/${MODEM}/0x3c7b.d/0.${NAS}.d/"
+mkdir -p "${WORKSPACE}"
+cp "/binaries/${MODEM}/modem.bin_workspace/loader.pickle.gz" "${WORKSPACE}/"
+./analyzer.py -n 3 -w "${WORKSPACE}" --goal <decoder_func> --init-func <init_func> --spec "vendor_spec/${MODEM}.py" --nas "${NAS}" --pd 7
+```
