@@ -21,6 +21,7 @@ from loris_analyzer.util.workspace import Workspace
 from loris_analyzer.project import LorisProject
 from loris_analyzer.symbol import SymbolTable
 from loris_analyzer.util import utils
+from loris_analyzer.util.logging import dlog, LOG_LOADER
 from loris_analyzer.variable import VariableManager
 from loris_analyzer.vendor import VendorRegs
 from loris_analyzer.vendor.mtk import Mtk
@@ -83,8 +84,9 @@ class LorisLoader(cle.Loader):
                 entry_point = emu.qemu.regs.pc
         main_section: avatar2.MemoryRange = emu.get_main_section()
         end_address = main_section.address + main_section.size - 1
-        log.debug(
-            f"Loading main section: {main_section.address:#010x}-{end_address:#010x}"
+        dlog(
+            LOG_LOADER,
+            f"Loading main section: {main_section.address:#010x}-{end_address:#010x}",
         )
         main_section_data = emu.panda.virtual_memory_read(
             emu.panda.get_cpu(), main_section.address, main_section.size

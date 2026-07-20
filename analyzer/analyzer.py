@@ -79,6 +79,17 @@ def get_args() -> argparse.Namespace:
         "--debug", action="store_true", help="Enable Baseband Analyzer debugging"
     )
     devopts.add_argument(
+        "-d",
+        "--log-mask",
+        type=str,
+        default=None,
+        help="Enable debug logging for subsystems (comma-separated): "
+        "sim,heap,mem,conc,path,exec,solver,loader,all",
+    )
+    devopts.add_argument(
+        "-D", "--log-file", type=str, default=None, help="Redirect debug output to file"
+    )
+    devopts.add_argument(
         "--angr-log",
         type=str.upper,
         choices=["INFO", "DEBUG", "WARNING", "ERROR"],
@@ -105,8 +116,14 @@ def main() -> int:
     args = get_args()
     args.rem = args.n if (args.n is not None and args.n > 0) else 1
 
+    mask = 0
+    if args.log_mask:
+        mask = loris.parse_mask(args.log_mask)
+
     loris.setup_logging(
         debug=args.debug,
+        mask=mask,
+        log_file=args.log_file,
         angr_loglevel=args.angr_log,
         firmwire_loglevel=args.firmwire_log,
     )

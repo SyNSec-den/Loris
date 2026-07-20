@@ -87,5 +87,6 @@ if __name__ == "__main__":
     m = proj.path("/mappings.py")
     print(m.exists())
     from loris_analyzer.util.utils import import_source_file
+
     mappings = import_source_file(m.to_path(), "mappings")
     print(mappings.__getattribute__("symbol_mappings"))

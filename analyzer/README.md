@@ -33,12 +33,31 @@ This will:
 ## Run Analyzer
 
 Prepare the analyzer container running `just analyze` and from container run:
+- The `--goal` function address comes from spec file from `ret_one` list; it's the function with `Warn>Decode Error: 0x%x` comment.
+- The `--init-func` for `SAEL3` is called from `SAEL3_Main` before entering while loop. See two examples below.
+- Below is the list of 4G NAS mobility management message IDs with protocol discriminator (`--pd`) 7.
 
+```python
+NAS_EMM_IDS = {0x42, 0x44, 0x45, 0x46, 0x49, 0x4b, 0x4e, 0x4f, 0x50, 0x52, 0x54,
+               0x55, 0x5d, 0x60, 0x61, 0x62, 0x64, 0x68}
+```
+
+1. 10 iterations of SAEL3 (4G NAS) analysis for a single message ID on a Pixel 6 image:
 ```bash
 MODEM="oriole-bp3a.250905.014"
 NAS="0x42"
 WORKSPACE="_output/${MODEM}/0x3c7b.d/0.${NAS}.d/"
 mkdir -p "${WORKSPACE}"
 cp "/binaries/${MODEM}/modem.bin_workspace/loader.pickle.gz" "${WORKSPACE}/"
-./analyzer.py -n 3 -w "${WORKSPACE}" --goal <decoder_func> --init-func <init_func> --spec "vendor_spec/${MODEM}.py" --nas "${NAS}" --pd 7
+./analyzer.py -n 10 -w "${WORKSPACE}" --goal 0x430F96D8 --init-func 0x42A0F104 --spec "vendor_spec/${MODEM}.py" --nas "${NAS}" --pd 7
+```
+
+2. Similarly, 10 iterations of SAEL3 (4G NAS) analysis for a single message ID on a Galaxy S21 image:
+```bash
+MODEM="G991BXXUEGXJE"
+NAS="0x54"
+WORKSPACE="_output/${MODEM}/0x3c7b.d/0.${NAS}.d/"
+mkdir -p "${WORKSPACE}"
+cp "/binaries/CP_G991BXXUEGXJE_CP28097318_MQB88157872_REV01_user_low_ship_MULTI_CERT/modem.bin_workspace/loader.pickle.gz" "${WORKSPACE}/"
+./analyzer.py -n 10 -w "${WORKSPACE}" --goal 0x418C91D1 --init-func 0x418A6E6A --spec "vendor_spec/${MODEM}.py" --nas "${NAS}" --pd 7 --soft-memory-limit $((60*1024)) > "${WORKSPACE}/output.log" 2>&1
 ```

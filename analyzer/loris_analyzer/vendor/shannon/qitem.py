@@ -12,8 +12,8 @@ class Payload:
 
 @dataclass
 class LteRrcDataInd(Payload):
-    _id: int = 0x3c7b
-    size: int = 0xc
+    _id: int = 0x3C7B
+    size: int = 0xC
 
 
 @dataclass
@@ -32,7 +32,9 @@ def register_payload(cls):
 
     assert issubclass(cls, Payload), "Payload must be derived from `Payload`"
 
-    assert cls._id not in PAYLOAD_BY_MSG, f"Payload registered twice or with duplicate id {cls._id}"
+    assert (
+        cls._id not in PAYLOAD_BY_MSG
+    ), f"Payload registered twice or with duplicate id {cls._id}"
 
     PAYLOAD_BY_MSG[cls._id] = cls
 

@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 from loris_analyzer.globals import *
 from loris_analyzer.util import utils
+from loris_analyzer.util.logging import dlog, LOG_MEM, LOG_HEAP, LOG_SOLVER
 
 log = logging.getLogger(__name__)
 
@@ -123,14 +124,19 @@ class VariableStat:
         return stat
 
     def __repr__(self):
-        states_repr = [f"{s} ({s.history.depth})" if s else str(s) for s in self._states[:min(10, len(self._states))]]
+        states_repr = [
+            f"{s} ({s.history.depth})" if s else str(s)
+            for s in self._states[: min(10, len(self._states))]
+        ]
         if len(self._states) > 10:
             states_repr.append("...")
         return f"<{self.__class__.__name__} r={self._n_reads} w={self._n_writes}, states=[{', '.join(states_repr)}]>"
 
 
 class VariableManager:
-    def __init__(self, stack: intervaltree.Interval, hook_interval: intervaltree.Interval):
+    def __init__(
+        self, stack: intervaltree.Interval, hook_interval: intervaltree.Interval
+    ):
         self._stack = stack
         self._write_hook_iv = hook_interval
         self._stop_recording = False
@@ -163,7 +169,11 @@ class VariableManager:
         return self._heap_chunks.overlaps(begin, end)
 
     def maybe_pointer(self, val: int):
-        return self.in_stack(val, val + 1) or self.in_heap(val, val + 1) or self._write_hook_iv.overlaps(val, val + 1)
+        return (
+            self.in_stack(val, val + 1)
+            or self.in_heap(val, val + 1)
+            or self._write_hook_iv.overlaps(val, val + 1)
+        )
 
     def write_panda_hook(self, emu, cpustate, memory_access_desc):
         if self._stop_recording:
@@ -171,9 +181,14 @@ class VariableManager:
         pc = cpustate.panda_guest_pc
         addr = memory_access_desc.addr
         size = memory_access_desc.size
-        (value,) = struct.unpack(self._UNPACK_SYM[size], emu.panda.virtual_memory_read(cpustate, addr, size))
-        log.debug(f"{self.__class__.__name__}::write_panda_hook: "
-                  f"PC({pc:#010x}), addr={addr:#010x}, size={size}, value={value:#x}")
+        (value,) = struct.unpack(
+            self._UNPACK_SYM[size], emu.panda.virtual_memory_read(cpustate, addr, size)
+        )
+        dlog(
+            LOG_MEM,
+            f"{self.__class__.__name__}::write_panda_hook: "
+            f"PC({pc:#010x}), addr={addr:#010x}, size={size}, value={value:#x}",
+        )
         if self.maybe_pointer(value):
             self._ptr_vars.add(utils.Interval(addr, addr + size, value))
         else:
@@ -185,8 +200,11 @@ class VariableManager:
         size = emu.qemu.pypanda.arch.get_reg(cpustate, size_reg)
         ret_addr = emu.qemu.pypanda.arch.get_return_address(cpustate)
         self._heap_id_size[ret_addr & ~1] = size
-        log.debug(f"{self.__class__.__name__}::heap_alloc_hook: "
-                  f"ret_addr({ret_addr:#010x}), size={size}")
+        dlog(
+            LOG_HEAP,
+            f"{self.__class__.__name__}::heap_alloc_hook: "
+            f"ret_addr({ret_addr:#010x}), size={size}",
+        )
         if ret_addr & ~1 not in self._heap_returns:
             self._heap_returns.add(ret_addr & ~1)
             emu.add_panda_hook(ret_addr & ~1, self._heap_alloc_ret_hook)
@@ -202,23 +220,36 @@ class VariableManager:
         size = state.inspect.mem_read_length
         value = state.inspect.mem_read_expr
         if self._ptr_vars.overlaps(addr, addr + size):
-            log.debug(f"memory_read_log: PTR_VARS addr={addr:#010x}, size={size}, expr={value}")
+            dlog(
+                LOG_MEM,
+                f"mem_read: PTR_VARS addr={addr:#010x}, size={size}, expr={value}",
+            )
         elif self._vars.overlaps(addr, addr + size):
-            if (state.globals[START_VAR_RECORD] and 
-                not self._ptr_vars.overlaps(addr, addr + size) and
-                not state.globals[INIT_VARS].overlaps(addr, addr + size) and 
-                not value.symbolic and
-                (state.globals[GOAL_SEEN] or 
-                 not self._goal_avoid_vars.overlaps(addr, addr + size)) and
-                not self._const_vars.overlaps(addr, addr + size)):
+            if (
+                state.globals[START_VAR_RECORD]
+                and not self._ptr_vars.overlaps(addr, addr + size)
+                and not state.globals[INIT_VARS].overlaps(addr, addr + size)
+                and not value.symbolic
+                and (
+                    state.globals[GOAL_SEEN]
+                    or not self._goal_avoid_vars.overlaps(addr, addr + size)
+                )
+                and not self._const_vars.overlaps(addr, addr + size)
+            ):
 
                 stat = VariableStat()
                 stat.read(d=(state.history.depth, len(state.callstack)))
                 stat.add_state(state.copy())
                 state.vars.add_rbi_var(addr, addr + size, stat)
-                log.debug(f"memory_read_log: VARS addr={addr:#010x}, size={size}, expr={value}, RBI_VAR")
+                dlog(
+                    LOG_MEM,
+                    f"mem_read: VARS addr={addr:#010x}, size={size}, expr={value}, RBI_VAR",
+                )
             else:
-                log.debug(f"memory_read_log: INIT_VARS addr={addr:#010x}, size={size}, expr={value}")
+                dlog(
+                    LOG_MEM,
+                    f"mem_read: INIT_VARS addr={addr:#010x}, size={size}, expr={value}",
+                )
 
     def trace_memory_write(self, state: angr.SimState):
         addr = state.inspect.mem_write_address
@@ -229,9 +260,15 @@ class VariableManager:
         size = value.length // bw if size is None else size
         assert size is not None or isinstance(value, claripy.ast.Base)
         if self._ptr_vars.overlaps(addr, addr + size):
-            log.debug(f"memory_write_log: PTR_VARS addr={addr:#010x}, size={size}, expr={value}")
+            dlog(
+                LOG_MEM,
+                f"mem_write: PTR_VARS addr={addr:#010x}, size={size}, expr={value}",
+            )
         elif self._vars.overlaps(addr, addr + size):
-            log.debug(f"memory_write_log: INIT_VARS addr={addr:#010x}, size={size}, expr={value}")
+            dlog(
+                LOG_MEM,
+                f"mem_write: INIT_VARS addr={addr:#010x}, size={size}, expr={value}",
+            )
             state.globals[INIT_VARS].add(utils.Interval(addr, addr + size))
 
     def taint_variable(self, state: angr.SimState, var: intervaltree.Interval):
@@ -243,7 +280,13 @@ class VariableManager:
         size = var.end - var.begin
         assert isinstance(size, int)
         key = (VAR_PREFIX, addr, size)
-        sym_val = state.solver.BVS(utils.var_key2name(key), size * bw, explicit_name=True, eternal=True, key=key)
+        sym_val = state.solver.BVS(
+            utils.var_key2name(key),
+            size * bw,
+            explicit_name=True,
+            eternal=True,
+            key=key,
+        )
         state.memory.store(addr, sym_val, size=size, endness="Iend_LE")
 
     def update_goal_avoid_vars(self, t: intervaltree.IntervalTree):
@@ -253,11 +296,20 @@ class VariableManager:
         self._const_vars.update(t)
 
     @staticmethod
-    def eval_variables(state: angr.SimState, n: int = 256) -> Dict[tuple, List[Union[range, int]]]:
+    def eval_variables(
+        state: angr.SimState, n: int = 256
+    ) -> Dict[tuple, List[Union[range, int]]]:
         variables = state.solver.get_variables(VAR_PREFIX)
         unconstrained_var_keys = {
-            k for k, v in variables if all([
-                utils.extract_name(v) not in cns.variables for cns in state.solver.constraints])}
+            k
+            for k, v in variables
+            if all(
+                [
+                    utils.extract_name(v) not in cns.variables
+                    for cns in state.solver.constraints
+                ]
+            )
+        }
         results = dict()
         variables = state.solver.get_variables(VAR_PREFIX)
         inputs = state.solver.get_variables(INPUT_PREFIX)
@@ -277,7 +329,10 @@ class VariableManager:
         if size == -1:
             log.error(f"Failed to fetch size of heap chunk {ptr:#010x} (pc={pc:#010x})")
             return
-        log.debug(f"{self.__class__.__name__}::_heap_alloc_ret_hook: PC({pc:#010x}), ptr={ptr:#010x}, size={size}")
+        dlog(
+            LOG_HEAP,
+            f"{self.__class__.__name__}::_heap_alloc_ret_hook: PC({pc:#010x}), ptr={ptr:#010x}, size={size}",
+        )
         self._heap_chunks.add(utils.Interval(ptr, ptr + size))
 
 
@@ -314,10 +369,13 @@ class Variables(angr.SimStatePlugin):
         if len(self._rbi_vars) == 0:
             return None
         var_list = list(self._rbi_vars.all_intervals)
-        var_list.sort(key=lambda _iv: (
-            # _iv.end - _iv.begin,  # size
-            _iv.data.min_states_depth,
-            _iv.begin))
+        var_list.sort(
+            key=lambda _iv: (
+                # _iv.end - _iv.begin,  # size
+                _iv.data.min_states_depth,
+                _iv.begin,
+            )
+        )
         return var_list[0]
 
     def next_random_var(self) -> Optional[intervaltree.Interval]:
@@ -329,13 +387,16 @@ class Variables(angr.SimStatePlugin):
 
     def log_vars(self, head=10):
         var_list = list(self._rbi_vars.all_intervals)
-        var_list.sort(key=lambda _iv: (
-            # _iv.end - _iv.begin,  # size
-            _iv.data.min_states_depth,
-            _iv.begin))
+        var_list.sort(
+            key=lambda _iv: (
+                # _iv.end - _iv.begin,  # size
+                _iv.data.min_states_depth,
+                _iv.begin,
+            )
+        )
         head = min(len(var_list), head)
         for iv in var_list[:head]:
-            log.debug(f"s: {iv.end - iv.begin: 6} {iv}")
+            dlog(LOG_SOLVER, f"s: {iv.end - iv.begin: 6} {iv}")
 
     @angr.SimStatePlugin.memo
     def copy(self, memo):

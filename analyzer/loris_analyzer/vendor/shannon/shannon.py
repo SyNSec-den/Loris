@@ -8,6 +8,7 @@ from typing import List, Optional, Union
 
 from loris_analyzer.globals import *
 from loris_analyzer.util import heap
+from loris_analyzer.util.logging import dlog, LOG_SIM, LOG_LOADER
 from loris_analyzer.vendor import shannon, Vendor
 from loris_analyzer.util import utils
 from loris_analyzer.vendor.shannon.qitem import get_payload, QItem
@@ -27,7 +28,7 @@ class Shannon(Vendor):
                 try:
                     self._regs.__setattr__(name, regs.__getattribute__(name))
                 except ValueError:
-                    log.debug(f"Skipping non-scalar register: {name}")
+                    dlog(LOG_LOADER, f"Skipping non-scalar register: {name}")
 
     def add_input_fields(
         self,
@@ -53,10 +54,15 @@ class Shannon(Vendor):
             except KeyError:
                 log.error(f"Failed to find queue {SHANNON_SAEL3} for mapping")
                 return None
+            try:
+                sync_qid = self._get_qid_by_name("SAEL3_SYNC")
+            except KeyError:
+                sync_qid = None
+
             m["kwargs"] = {
                 "num_msg_buf": 1,
                 "qid": qid,
-                # "sync_qid": self._vendor["queues"].get("SAEL3_SYNC"),
+                "sync_qid": sync_qid,
             }
 
         return m
@@ -108,9 +114,10 @@ class Shannon(Vendor):
         # the next load will use state.uc_manager to allocate a memory region for p_ded_info_nas
         _ = state.memory.load(p_ded_info_nas, size=1)
         p_ded_info_nas = state.solver.eval_one(p_ded_info_nas)
-        log.debug(
+        dlog(
+            LOG_SIM,
             f"{self.__class__.__name__}::add_input_fields:"
-            f"p_payload={p_payload}, p_ded_info_nas={p_ded_info_nas:#010x}"
+            f"p_payload={p_payload}, p_ded_info_nas={p_ded_info_nas:#010x}",
         )
 
         if protocol_disc == 7:
@@ -151,9 +158,10 @@ class Shannon(Vendor):
             state.memory.store(p_ded_info_nas + 2, nas_msg_id)
 
         ded_info_nas_size = state.memory.load(p_payload + 4, size=2, endness="Iend_LE")
-        log.debug(
+        dlog(
+            LOG_SIM,
             f"{self.__class__.__name__}::add_input_fields:"
-            f"ded_info_nas_size={ded_info_nas_size}"
+            f"ded_info_nas_size={ded_info_nas_size}",
         )
         state.solver.add(ded_info_nas_size == state.uc_manager.alloc_size)
 
@@ -161,11 +169,12 @@ class Shannon(Vendor):
             two_bytes = state.memory.load(p_ded_info_nas, size=2, endness="Iend_BE")
         elif protocol_disc == 2:
             two_bytes = state.memory.load(p_ded_info_nas, size=3, endness="Iend_BE")
-        log.debug(
+        dlog(
+            LOG_SIM,
             f"{self.__class__.__name__}::add_input_fields:"
             f"p_ded_info_nas={p_ded_info_nas}\n"
             f"ded_info_nas(few bytes)={two_bytes}\n"
-            f"state.solver.constraints={state.solver.constraints}"
+            f"state.solver.constraints={state.solver.constraints}",
         )
 
         return state
@@ -210,7 +219,10 @@ class Shannon(Vendor):
 
     @staticmethod
     def _function_hooks(state: angr.SimState):
-        print(f"_function_hooks: function_address={state.inspect.function_address}")
+        dlog(
+            LOG_SIM,
+            f"_function_hooks: function_address={state.inspect.function_address}",
+        )
         faddr = state.inspect.function_address & ~1
         faddr = utils.try_eval_one(state, faddr)
         ptr_size = state.arch.bits // state.arch.byte_width
@@ -238,7 +250,10 @@ class Shannon(Vendor):
                 p_transceiver + 0x20, pp_nrmm_data, size=ptr_size, endness="Iend_LE"
             )
 
-            print(f"_function_hooks: SchedDataPriority={param_1}, pp_ftobj={pp_ftobj}")
+            dlog(
+                LOG_SIM,
+                f"_function_hooks: SchedDataPriority={param_1}, pp_ftobj={pp_ftobj}",
+            )
             state.globals[START_VAR_RECORD] = True
 
     def _get_qid_by_name(self, name: str) -> Optional[int]:

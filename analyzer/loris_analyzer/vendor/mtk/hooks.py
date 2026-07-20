@@ -7,7 +7,9 @@ class SimMsgReceiveExtq(utils.SimProcedure):
         self._num_msg_buf = num_msg_buf
 
     def run(self, p_qitem):
+        self._log_call(p_qitem)
         import IPython
+
         IPython.embed()
 
 

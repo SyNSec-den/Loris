@@ -8,9 +8,14 @@ import z3
 from typing import List, Optional, Union
 
 from loris_analyzer.util import heap
-from loris_analyzer.util.concretization import (SimConcretizationStrategyAny, SimConcretizationStrategyMax,
-                                                SimConcretizationStrategyRange, SimConcretizationStrategySolutions)
+from loris_analyzer.util.concretization import (
+    SimConcretizationStrategyAny,
+    SimConcretizationStrategyMax,
+    SimConcretizationStrategyRange,
+    SimConcretizationStrategySolutions,
+)
 from loris_analyzer.util import utils
+from loris_analyzer.util.logging import dlog, LOG_HEAP, LOG_SOLVER, LOG_LOADER
 from loris_analyzer.variable import Variables
 
 log = logging.getLogger(__name__)
@@ -28,7 +33,9 @@ class BackendZ3Limited(type(claripy.backends.z3)):
     def _check_needs_downsize(self):
         mem_usage = psutil.Process().memory_info().rss
         if mem_usage >= self.soft_memory_limit:
-            log.warning(f"Hit soft memory limit (usage: {mem_usage//1024**2} MiB). Clearing caches...")
+            log.warning(
+                f"Hit soft memory limit (usage: {mem_usage//1024**2} MiB). Clearing caches..."
+            )
 
             self.downsize()
             # TODO: FIX ME
@@ -38,8 +45,10 @@ class BackendZ3Limited(type(claripy.backends.z3)):
 
             mem_usage = psutil.Process().memory_info().rss
             if mem_usage >= self.soft_memory_limit:
-                raise RuntimeError(f"Could not reduce memory usage below soft memory limit "
-                                   f"(usage: {mem_usage//1024**2} MiB).")
+                raise RuntimeError(
+                    f"Could not reduce memory usage below soft memory limit "
+                    f"(usage: {mem_usage//1024**2} MiB)."
+                )
             else:
                 log.info(f"Reduced memory usage to {mem_usage//1024**2} MiB")
 
@@ -62,7 +71,9 @@ class BackendZ3Limited(type(claripy.backends.z3)):
             self._check_is_too_complex(expr)
         return super().eval(expr, n, extra_constraints, solver, model_callback)
 
-    def batch_eval(self, exprs, n, extra_constraints=(), solver=None, model_callback=None):
+    def batch_eval(
+        self, exprs, n, extra_constraints=(), solver=None, model_callback=None
+    ):
         self._check_needs_downsize()
         for expr in exprs:
             self._check_is_too_complex(expr)
@@ -70,7 +81,9 @@ class BackendZ3Limited(type(claripy.backends.z3)):
             self._check_is_too_complex(expr)
         return super().batch_eval(exprs, n, extra_constraints, solver, model_callback)
 
-    def check_satisfiability(self, extra_constraints=(), solver=None, model_callback=None):
+    def check_satisfiability(
+        self, extra_constraints=(), solver=None, model_callback=None
+    ):
         self._check_needs_downsize()
         for expr in extra_constraints:
             self._check_is_too_complex(expr)
@@ -121,7 +134,7 @@ class SimUCManager(angr.state_plugins.SimStatePlugin):
 
         self._alloc_depth_map[abs_addr] = dst_addr_ast.uc_alloc_depth
 
-        log.debug(f"Assigned new memory region {ptr}(size={self._alloc_size:#x})")
+        dlog(LOG_HEAP, f"Assigned new memory region {ptr}(size={self._alloc_size:#x})")
         return ptr
 
     @angr.sim_state.SimStatePlugin.memo
@@ -142,17 +155,20 @@ class SimUCManager(angr.state_plugins.SimStatePlugin):
         :return: True if there is at least one related constraint, False otherwise
         """
         res = len(ast.variables.intersection(self.state.solver._solver.variables)) != 0
-        log.debug(
+        dlog(
+            LOG_SOLVER,
             f"{self.__class__.__name__}::is_bounded:addr={ast}, res={res}\n"
             f"\tast.variables={ast.variables}\n"
             f"\tself.state.solver._solver.variables={self.state.solver._solver.variables}\n"
-            f"\tself.state.solver.constraints={self.state.solver.constraints}\n"
+            f"\tself.state.solver.constraints={self.state.solver.constraints}\n",
         )
         return res
 
 
 class LorisFactory(angr.factory.AngrObjectFactory):
-    def entry_state(self, soft_memory_limit: Optional[int] = None, **kwargs) -> angr.SimState:
+    def entry_state(
+        self, soft_memory_limit: Optional[int] = None, **kwargs
+    ) -> angr.SimState:
         add_options = {
             angr.options.BYPASS_UNSUPPORTED_SYSCALL,
             angr.options.TRACK_CONSTRAINTS,
@@ -160,37 +176,43 @@ class LorisFactory(angr.factory.AngrObjectFactory):
         }
         add_options.update(kwargs.pop("add_options", set()))
 
-        log.debug(f"add_options: {add_options}")
+        dlog(LOG_LOADER, f"add_options: {add_options}")
         state = super().entry_state(add_options=add_options, **kwargs)
         if soft_memory_limit is None:
             solver = claripy.Solver()
         else:
-            claripy.backends._register_backend(BackendZ3Limited(soft_memory_limit), "BackendZ3Limited", False, False)
+            claripy.backends._register_backend(
+                BackendZ3Limited(soft_memory_limit), "BackendZ3Limited", False, False
+            )
             max_memory = 8000  # Maximum Z3 memory in megabytes
             timeout = 3000  # Timeout (in milliseconds) used for Z3 solver
-            solver = claripy.Solver(backend=BackendZ3Limited(soft_memory_limit), max_memory=max_memory, timeout=timeout)
+            solver = claripy.Solver(
+                backend=BackendZ3Limited(soft_memory_limit),
+                max_memory=max_memory,
+                timeout=timeout,
+            )
         state.register_plugin("solver", angr.state_plugins.SimSolver(solver=solver))
-        state.register_plugin("heap", angr.SimHeapPTMalloc(heap_base=0xbd000000, heap_size=0x1000000))
+        state.register_plugin(
+            "heap", angr.SimHeapPTMalloc(heap_base=0xBD000000, heap_size=0x1000000)
+        )
         state.register_plugin("vars", Variables())
         heap.print_all_chunks(state)
         state.register_plugin("uc_manager", SimUCManager())
         state.memory.read_strategies = [
             SimConcretizationStrategySolutions(20),
             SimConcretizationStrategyRange(1024),
-            SimConcretizationStrategyAny()
+            SimConcretizationStrategyAny(),
         ]
         state.memory.write_strategies = [
             SimConcretizationStrategyRange(128),
-            SimConcretizationStrategyMax((1 << state.arch.bits) - 1)
+            SimConcretizationStrategyMax((1 << state.arch.bits) - 1),
         ]
         heap.print_all_chunks(state)
 
         return state
 
     def simulation_manager(
-        self,
-        thing: Union[List[angr.SimState], angr.SimState, None] = None,
-        **kwargs
+        self, thing: Union[List[angr.SimState], angr.SimState, None] = None, **kwargs
     ) -> utils.SimulationManager:
 
         if thing is None:
@@ -201,10 +223,13 @@ class LorisFactory(angr.factory.AngrObjectFactory):
         elif isinstance(thing, angr.SimState):
             thing = [thing]
         else:
-            raise angr.AngrError("BadType to initialze SimulationManager: %s" % repr(thing))
+            raise angr.AngrError(
+                "BadType to initialze SimulationManager: %s" % repr(thing)
+            )
 
         return utils.SimulationManager(
-            self.project, active_states=thing, exception_list=[z3.Z3Exception], **kwargs)
+            self.project, active_states=thing, exception_list=[z3.Z3Exception], **kwargs
+        )
 
 
 class LorisProject(angr.Project):

@@ -24,6 +24,13 @@ from loris_analyzer.util import utils
 from loris_analyzer.util.workspace import Workspace
 from loris_analyzer.variable import Variables
 from loris_analyzer.vendor import Vendor
+from loris_analyzer.util.logging import (
+    dlog,
+    log_enabled,
+    LOG_PATH,
+    LOG_EXEC,
+    LOG_SOLVER,
+)
 
 log = logging.getLogger(__name__)
 
@@ -32,18 +39,19 @@ def suc_logger(state: angr.SimState):
     successors = state.inspect.sim_successors.successors
     for s in successors:
         if s.regs.pc.symbolic or s.addr == 0:
-            print(f"suc_logger: {state}")
+            dlog(LOG_PATH, f"suc_logger: {state}")
 
 
 def reg_logger(state: angr.SimState):
     ip = state.solver.eval_upto(state.inspect.reg_write_offset, 1, cast_to=int)
     if ip == 68:
-        print(
+        dlog(
+            LOG_EXEC,
             f"reg_logger: reg_write_offset={state.inspect.reg_write_offset}, "
             f"reg_write_expr={state.inspect.reg_write_expr}, "
             f"reg_write_length={state.inspect.reg_write_length}, "
             f"reg_write_condition={state.inspect.reg_write_condition}, "
-            f"reg_write_endness={state.inspect.reg_write_endness}"
+            f"reg_write_endness={state.inspect.reg_write_endness}",
         )
 
 
@@ -53,8 +61,9 @@ def has_successors(state: angr.SimState):
 
 def fork_logger(state: angr.SimState):
     successors = state.inspect.sim_successors.successors
-    print(
-        f"Forking states: {state.addr:#010x} -> [{', '.join([hex(s.addr) for s in successors])}]"
+    dlog(
+        LOG_PATH,
+        f"fork: {state.addr:#010x} -> [{', '.join([hex(s.addr) for s in successors])}]",
     )
 
 
@@ -133,8 +142,9 @@ class LorisAnalyzer:
             for st in states:
                 self._setup_inspection(st, irsb=True, constraints=True)
                 self._additional_constraints(st)
-                log.debug(
-                    f"{st}.solver.constraints={utils.list_fmt(st.solver.constraints)}"
+                dlog(
+                    LOG_SOLVER,
+                    f"{st}.solver.constraints={utils.list_fmt(st.solver.constraints)}",
                 )
             sm: angr.SimulationManager = self._project.factory.simulation_manager(
                 states
@@ -187,6 +197,8 @@ class LorisAnalyzer:
                 self._stats[f"explore{self._iter_idx}"] = time.time()
 
             log.info(sm)
+            if sm.deadended:
+                dlog(LOG_EXEC, f"deadended: {sm.deadended}")
             log.info(f"errored: {sm.errored}")
 
             new_var, not_all_states_agree = self._next_major_var()
@@ -215,9 +227,9 @@ class LorisAnalyzer:
 
             for st in new_states:
                 self._var_mgr.taint_variable(st, new_var)
-                log.debug("--------------------------------")
-                log.debug(f"# rbi_vars: {len(st.vars.rbi_vars)}")
-                log.debug(f"# bbl_addrs: {len(st.history.bbl_addrs)}")
+                dlog(LOG_SOLVER, "--------------------------------")
+                dlog(LOG_SOLVER, f"# rbi_vars: {len(st.vars.rbi_vars)}")
+                dlog(LOG_SOLVER, f"# bbl_addrs: {len(st.history.bbl_addrs)}")
                 st.vars.log_vars(head=5)
             states = new_states
             self._candidate_next_vars = Variables()
@@ -623,16 +635,20 @@ class LorisAnalyzer:
     @staticmethod
     def _constraint_logger(state: angr.SimState):
         if any(ast.op != "BoolV" for ast in state.inspect.added_constraints):
-            print(
-                f"{state.regs.pc}: Added path constraints: {state.inspect.added_constraints}"
+            dlog(
+                LOG_SOLVER,
+                f"constraint @ PC={state.regs.pc}: {state.inspect.added_constraints}",
             )
 
     @staticmethod
     def _instruction_logger(state: angr.SimState):
-        if log.parent.level <= logging.DEBUG:
-            print("--------------------------------")
-            print(f"{state} ({state.history.depth})")
-            state.block().disassembly.pp()
+        if log_enabled(LOG_EXEC):
+            block = state.block()
+            insns = "\n".join(
+                f"  0x{i.address:08x}: {i.mnemonic} {i.op_str}"
+                for i in block.capstone.insns
+            )
+            dlog(LOG_EXEC, f"{state} (depth={state.history.depth})\n{insns}")
 
 
 loris_finished_states = 0

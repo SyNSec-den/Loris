@@ -23,7 +23,7 @@ class Mtk(Vendor):
         state: angr.SimState,
         task: str,
         protocol_disc: int = 7,
-        nas_msg_id_list: List[int] = None
+        nas_msg_id_list: List[int] = None,
     ):
         if task == MTK_EMM:
             self._add_input_fields_emm(state)

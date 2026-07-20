@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Tuple, Union
 
 from loris_analyzer.globals import *
-
+from loris_analyzer.util.logging import dlog, log_enabled, LOG_SIM
 
 log = logging.getLogger(__name__)
 
@@ -40,10 +40,30 @@ class Interval(intervaltree.Interval):
 
 
 class SimProcedure(angr.SimProcedure):
-    def __init__(
-        self, *args, analyzer=None, **kwargs
-    ):  # to avoid passing `analyzer` to angr
+    def __init__(self, *args, analyzer=None, **kwargs):
         super().__init__(*args, **kwargs)
+
+    def _log_call(self, *args):
+        if log_enabled(LOG_SIM):
+            args_str = ", ".join(self._fmt_bv(a) for a in args)
+            try:
+                lr = self._fmt_bv(self.state.regs.lr)
+            except Exception:
+                lr = "?"
+            dlog(LOG_SIM, f"{self.__class__.__name__}({args_str}) [LR={lr}]")
+
+    @staticmethod
+    def _fmt_bv(bv):
+        if bv is None:
+            return "None"
+        if isinstance(bv, int):
+            return f"0x{bv:08x}"
+        if hasattr(bv, "concrete") and bv.concrete:
+            try:
+                return f"0x{bv.args[0]:08x}"
+            except (TypeError, IndexError):
+                pass
+        return str(bv)
 
 
 class SimulationManager(angr.SimulationManager):
@@ -342,11 +362,12 @@ def get_updated_memory(
         )
         changed = not is_same
         if changed:
-            log.debug(
+            dlog(
+                LOG_SIM,
                 f"get_updated_memory:"
                 f"changed={changed}, "
                 f"i.begin={i.begin:#x}, i.data.variables={i.data.variables}, size={i.data.length // 8:#x}\n"
-                f"\tvalue.symbolic={value.symbolic}, value.op={value.op}, value.variable={value.variables}"
+                f"\tvalue.symbolic={value.symbolic}, value.op={value.op}, value.variable={value.variables}",
             )
             intervals.addi(i.begin, i.begin + i.data.length // 8, value)
 
@@ -363,7 +384,7 @@ def get_heap_intervals(state: angr.SimState):
         size = try_eval_one(state, ck.get_data_size())
         if not isinstance(size, int):
             continue
-        log.debug(f"get_heap_intervals:" f"ptr={ptr:#010x}, size={size:#x}")
+        dlog(LOG_SIM, f"get_heap_intervals: ptr={ptr:#010x}, size={size:#x}")
         intervals.update(
             get_initialized_intervals(state.memory, range(ptr, ptr + size))
         )
